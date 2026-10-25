@@ -1,0 +1,121 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+}
+
+// Koordinat `gradle.properties`ten okunur — bu dosyada sabit yazılmaz.
+// The coordinate is read from `gradle.properties`; never hard-coded here.
+group = providers.gradleProperty('lunixiGroupId').get()
+version = providers.gradleProperty('lunixiVersion').get()
+def javaRelease = providers.gradleProperty('lunixiJavaRelease').get() as Integer
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    // ÇALIŞMA ZAMANI BAĞIMLILIĞI YOK. İmza (Ed25519), HMAC, HTTP ve JSON JDK ile
+    // karşılanır; bir müşterinin sınıf yolunda sürüm çatışması çıkmaz.
+    // NO RUNTIME DEPENDENCIES: signing, HMAC, HTTP and JSON come from the JDK,
+    // so the SDK cannot collide with a customer's own library versions.
+    testImplementation platform('org.junit:junit-bom:5.10.5')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // `release` kurulu JDK'dan bağımsız olarak hedef sürümün API'siyle derler:
+    // yeni bir JDK'da derlense bile en düşük sürümde olmayan bir çağrı sızmaz.
+    options.release = javaRelease
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xlint:all'
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = providers.gradleProperty('lunixiArtifactId').get()
+            from components.java
+            pom {
+                name = 'Lunixi Java SDK'
+                description = 'Lunixi platform Java SDK — authentication, request signing and the fraud decision surface.'
+                url = 'https://github.com/Lunixi-Payment/lunixi-java'
+                licenses {
+                    license {
+                        name = 'MIT'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'lunixi'
+                        name = 'Lunixi'
+                        organization = 'Lunixi'
+                        organizationUrl = 'https://lunixi.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/Lunixi-Payment/lunixi-java.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/Lunixi-Payment/lunixi-java.git'
+                    url = 'https://github.com/Lunixi-Payment/lunixi-java'
+                }
+            }
+        }
+    }
+    repositories {
+        // Local Maven layout that centralBundle zips for the Central Portal upload.
+        maven {
+            name = 'centralStaging'
+            url = layout.buildDirectory.dir('central-staging')
+        }
+    }
+}
+
+// Maven Central requires every artifact signed. Signing uses the local gpg (its
+// agent asks for the passphrase) and runs only when publishing, so ordinary
+// builds and tests need no key. -PlunixiUnsigned builds the bundle without
+// signatures to check its layout; Central rejects such a bundle.
+if (!providers.gradleProperty('lunixiUnsigned').isPresent()) {
+    signing {
+        useGpgCmd()
+        sign publishing.publications.mavenJava
+    }
+}
+
+// Start every bundle from an empty staging folder, so no older version slips in.
+tasks.matching { it.name == 'publishMavenJavaPublicationToCentralStagingRepository' }.configureEach {
+    doFirst { delete layout.buildDirectory.dir('central-staging') }
+}
+
+// Zip for central.sonatype.com → Publish → Upload bundle:
+//   gradle centralBundle   →   build/central/<artifactId>-<version>-bundle.zip
+tasks.register('centralBundle', Zip) {
+    group = 'publishing'
+    description = 'Signed Maven Central upload bundle.'
+    def staging = layout.buildDirectory.dir('central-staging')
+    dependsOn 'publishMavenJavaPublicationToCentralStagingRepository'
+    from(staging) {
+        exclude '**/maven-metadata*'
+    }
+    archiveFileName = "${providers.gradleProperty('lunixiArtifactId').get()}-${version}-bundle.zip"
+    destinationDirectory = layout.buildDirectory.dir('central')
+}
