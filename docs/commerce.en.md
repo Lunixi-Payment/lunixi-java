@@ -1,6 +1,6 @@
 # Payments and durable native checkout
 
-Java SDK 0.2.0 exposes authenticated payment APIs plus checkout reservation/reconciliation. JDK 17+; no external runtime libraries. [Install/configure](../README.md). [Türkçe](commerce.tr.md). For a real transaction-capable implementation use the [Spring Boot Starter sample](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) and [Spring guide](https://docs.lunixi.com/sdks/spring-boot).
+Java SDK 0.2.1 exposes authenticated payment APIs plus checkout reservation/reconciliation. JDK 17+; no external runtime libraries. [Install/configure](../README.md). [Türkçe](commerce.tr.md). For a real transaction-capable implementation use the [Spring Boot Starter sample](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) and [Spring guide](https://docs.lunixi.com/sdks/spring-boot).
 
 ## Server order, exact money and reservation
 
@@ -21,9 +21,10 @@ CommerceService commerce = new CommerceService(client, nativeStore, box);
 OrderSnapshot order = new OrderSnapshot(merchantId, storedOrderId,
         Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency);
 CheckoutSession checkout = commerce.start(durableOrderKey, order,
-        "https://shop.example/return/owned-order", true, false, "en");
-// hosted=true; preauth=false requests immediate capture. Return only to the owner.
-String redirect = checkout.hostedUrl();
+        "https://shop.example/return/owned-order", false, false, "en");
+// hosted=false embeds on the merchant site; preauth=false requests immediate capture.
+String browserToken = checkout.token(); // merchant-site embedded form
+// Optional redirect: checkout.hostedUrl() returns the exact backend paymentPageUrl.
 ```
 
 `durableOrderKey` is stable, namespaced by tenant/store/order; never a random browser input. Before calling `start`, enforce native session/customer/order ownership, CSRF and unchanged native totals. The reservation is committed before the financial POST. Descriptor, snapshot, gateway/environment context, original key and creation time are retained; retries after a process restart preserve request byte order and key. Tokens are encrypted with a separate 32-byte server key and cached conservatively for 840 seconds. Keep the key outside DB/web root, back it up separately and do not log checkout objects/URLs.
@@ -75,6 +76,9 @@ These low-level methods require stable 16–128-character ASCII operation keys f
 
 ## Hosted/embedded browser and return routes
 
-The hosted form is `checkout.hostedUrl()`. The official embedded bundle is `https://cdn.lunixi.com/lunixi-checkout.min.js`; the runnable Spring sample demonstrates its actual object/token/mount contract with CSP and no raw cards. Available meal cards, shopping credit, installments, insurance and multi-card methods stay controlled by Lunixi merchant settings; do not duplicate filters in the store unless explicitly supported by a documented API.
+Merchant-site embedding is the default. Optional `checkout.hostedUrl()` returns the exact validated backend `paymentPageUrl`; it never derives a URL from the embedded token. The official embedded bundle is `https://cdn.lunixi.com/lunixi-checkout.min.js`; the runnable Spring sample demonstrates its actual object/token/mount contract with CSP and no raw cards. Available meal cards, shopping credit, installments, insurance and multi-card methods stay controlled by Lunixi merchant settings; do not duplicate filters in the store unless explicitly supported by a documented API.
 
 Hosted/split/3DS callbacks use browser **POST**. That informational route must ignore the complete body and return 303 to a fixed relative same-origin GET without session/order/DB/gateway access, because cross-site POST may lack SameSite=Lax cookies. Bound declared bodies and enforce a matching proxy wire limit. The GET restores normal native ownership checks and authenticated reconciliation. Exempt only the informational return and signed webhook from checkout CSRF; never trust browser status/IDs or relax checkout/admin authentication.
+
+
+The hosted URL and token are encrypted together in the retained attempt. Legacy records without paymentPageUrl still embed; hostedUrl fails closed without another create, key rotation or guessed URL. Existing request descriptors, origin settings and keys remain unchanged.

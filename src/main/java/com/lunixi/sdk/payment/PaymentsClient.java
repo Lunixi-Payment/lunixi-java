@@ -22,7 +22,9 @@ public final class PaymentsClient {
         Map<String, Object> result = Envelope.data(api.request("POST", BASE + "/intents", request, mutation(idempotencyKey)));
         String id = text(result.get("paymentId"));
         for (String alias : new String[]{"intentId", "id"}) { if (result.containsKey(alias) && !id.equals(result.get(alias))) { throw new IllegalStateException("Conflicting checkout response identities; reconcile the persisted attempt."); } }
-        return new CheckoutSession(id, text(result.get("token")));
+        Object paymentPageUrl = result.get("paymentPageUrl");
+        if (paymentPageUrl != null && !(paymentPageUrl instanceof String)) { throw new IllegalStateException("Uncertain checkout response: paymentPageUrl must be a string when present."); }
+        return new CheckoutSession(id, text(result.get("token")), (String) paymentPageUrl);
     }
     /** Full envelope is retained because settlement balances are in details beside data. */
     public Map<String, Object> get(String paymentId) { return api.request("GET", BASE + "/" + segment(paymentId), null, RequestOptions.none()); }

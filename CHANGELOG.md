@@ -3,6 +3,12 @@
 `com.lunixi:lunixi-java-sdk` sürüm geçmişi. · Release history of
 `com.lunixi:lunixi-java-sdk`.
 
+## 0.2.1
+
+- Preserve optional backend paymentPageUrl and return it exactly after strict fixed-HTTPS host/path validation; never rebuild hosted checkout from the embedded token. Keep the two-argument CheckoutSession constructor for legacy embedded responses.
+- Encrypt hosted URL with the retained browser token; legacy records without a URL keep their original request/key/history and cannot silently redirect or create another attempt.
+- Document merchant-site embedding as the default with optional same-intent hosted checkout.
+
 ## 0.2.0
 
 - Added signed checkout intent, authenticated payment/split reads, capture/refund/void and split-refund clients. Full response envelopes retain settlement details beside data.

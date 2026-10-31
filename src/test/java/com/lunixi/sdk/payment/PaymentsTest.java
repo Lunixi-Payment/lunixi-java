@@ -26,7 +26,7 @@ class PaymentsTest {
     }
     Map<String, Object> request() { return Map.of("amount", 1990L, "currency", "TRY", "orderId", "order-1", "callbackUrl", "https://shop.invalid/return"); }
     @Test void signsTheExactIntentBodyAndReadsActualPaymentIdToken() throws Exception {
-        transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"browser/token?\"}}");
+        transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"embedded-only-token\",\"paymentPageUrl\":\"https://pay.lunixi.com/payment/hosted-origin-token-012345\"}}");
         CheckoutSession result = client.payments().createIntent(request(), KEY);
         var call = transport.onlyApiCall(); String path = "/api/v1/payments/intents";
         assertEquals("https://gateway.invalid" + path, call.url); assertEquals(KEY, call.headers.get("Idempotency-Key"));
@@ -34,7 +34,34 @@ class PaymentsTest {
         String canonical = CanonicalRequest.build("POST", path, call.headers.get(CanonicalRequest.HEADER_DATE), call.headers.get(CanonicalRequest.HEADER_NONCE), call.headers.get(CanonicalRequest.HEADER_DIGEST));
         Signature verifier = Signature.getInstance("Ed25519"); verifier.initVerify(Ed25519Signer.publicKeyFrom(keys.publicKeyPem())); verifier.update(canonical.getBytes(StandardCharsets.UTF_8));
         assertTrue(verifier.verify(Base64.getDecoder().decode(call.headers.get(CanonicalRequest.HEADER_SIGNATURE))));
-        assertEquals("pi-1", result.paymentId()); assertEquals("https://pay.lunixi.com/payment/browser%2Ftoken%3F", result.hostedUrl()); assertFalse(result.toString().contains("browser/token"));
+        assertEquals("pi-1", result.paymentId()); assertEquals("embedded-only-token", result.token());
+        assertEquals("https://pay.lunixi.com/payment/hosted-origin-token-012345", result.hostedUrl());
+        assertFalse(result.toString().contains("embedded-only-token")); assertFalse(result.toString().contains("hosted-origin-token"));
+    }
+    @Test void oldResponsesAndTwoArgumentConstructionStillEmbedButNeverGuessAHostedUrl() {
+        transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"merchant-token\"}}");
+        CheckoutSession legacy = client.payments().createIntent(request(), KEY);
+        assertEquals("merchant-token", legacy.token()); assertNull(legacy.paymentPageUrl());
+        assertThrows(IllegalStateException.class, legacy::hostedUrl);
+        assertThrows(IllegalStateException.class, new CheckoutSession("pi-1", "legacy-token")::hostedUrl);
+    }
+    @Test void rejectsUntrustedMalformedOrNonOpaqueHostedUrls() {
+        for (String invalid : new String[]{
+                "http://pay.lunixi.com/payment/t", "https://pay.lunixi.com.evil.example/payment/t",
+                "https://pay.lunixi.com@evil.example/payment/t", "https://user@pay.lunixi.com/payment/t",
+                "https://pay.lunixi.com:444/payment/t", "https://pay.lunixi.com/payment/t?next=evil",
+                "https://pay.lunixi.com/payment/t#fragment", "https://pay.lunixi.com/payment/one/two",
+                "https://pay.lunixi.com/payment/", "https://pay.lunixi.com/payment/%xx",
+                "https://pay.lunixi.com/payment/..", "https://pay.lunixi.com/payment/%2e%2E",
+                "https://pay.lunixi.com/payment/t\r\nLocation:evil",
+                "https://pay.lunixi.com/payment/0123456789abcdef\n",
+                "https://pay.lunixi.com/payment/0123456789abcdef%2Fanother",
+                "https://pay.lunixi.com/payment/0123456789abcdef%0A",
+                "https://pay.lunixi.com/payment/" + "t".repeat(4097)}) {
+            assertThrows(IllegalArgumentException.class, () -> new CheckoutSession("pi-1", "embedded", invalid), invalid);
+        }
+        transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"merchant-token\",\"paymentPageUrl\":123}}");
+        assertThrows(IllegalStateException.class, () -> client.payments().createIntent(request(), KEY));
     }
     @Test void refusesInvalidMoneyKeysCallbacksAndConflictingCreateIds() {
         assertThrows(IllegalArgumentException.class, () -> client.payments().createIntent(request(), "short"));

@@ -4,7 +4,7 @@
 
 [English](README.md) · [Dokümantasyon](https://docs.lunixi.com/tr/sdks/java) · [Sürüm geçmişi](CHANGELOG.md) · [Güvenlik](SECURITY.md)
 
-**0.2.0**, mevcut fraud istemcisine ödeme oluşturma, tahsilat/iade/iptal, çoklu kart sorgulama/iadesi ve kalıcı ödeme mutabakatı ekler. **JDK 17+**, **sıfır harici çalışma zamanı bağımlılığı**, MIT lisansı.
+**0.2.1**, mevcut fraud istemcisine ödeme oluşturma, tahsilat/iade/iptal, çoklu kart sorgulama/iadesi ve kalıcı ödeme mutabakatı ekler. **JDK 17+**, **sıfır harici çalışma zamanı bağımlılığı**, MIT lisansı.
 
 | Yüzey | Kapsam |
 |---|---|
@@ -16,22 +16,49 @@
 
 Abonelik, kimlik, yaptırım ve KYC ürünlerinin tüm tipli istemcileri bu sürümde bulunmaz; ilgili REST sözleşmesini ayrıca izleyin. SDK sunucuda çalışır; kart numarası/CVV toplamaz, hazır mağaza/yönetici uygulaması değildir.
 
-## Kaynaktan kurulum
 
-Koordinat **`com.lunixi:lunixi-java-sdk:0.2.0`**. GitHub etiketi, yerel Maven kurulumu veya imzasız paket **Maven Central yayını anlamına gelmez**. Bu koordinat Central'da yayımlanana kadar **Gradle 9.7.1** ile kaynak etiketi derleyip yerel Maven deposundan kullanın:
+
+0.2.1 kaynak sürümü hazırlığıdır; Maven Central’da son doğrulanan sürüm 0.2.0’dır. Yeni checkout sözleşmesi 0.2.1 gerektirir; dağıtımdan önce kayıt servisinde erişim doğrulanmalıdır.
+
+## Maven Central üzerinden kurulum
+
+**[`com.lunixi:lunixi-java-sdk:0.2.1`](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/0.2.1)** koordinatını JDK 17+ ile kullanın.
+
+Gradle:
+
+```groovy
+repositories { mavenCentral() }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
+```
+
+Maven:
+
+```xml
+<dependency>
+  <groupId>com.lunixi</groupId>
+  <artifactId>lunixi-java-sdk</artifactId>
+  <version>0.2.1</version>
+</dependency>
+```
+
+Maven standart Central deposunu kullanır; bu bağımlılık için özel depo veya yerel kaynak derlemesi gerekmez.
+
+### Geliştirme için kaynak ve yerel Maven alternatifi
+
+Geliştirme sırasında incelenmiş kaynak etiketini **Gradle 9.7.1** ile derleyip yerel Maven deposuna kurabilirsiniz:
 
 ```sh
-git clone --depth 1 --branch v0.2.0 https://github.com/Lunixi-Payment/lunixi-java.git
+git clone --depth 1 --branch v0.2.1 https://github.com/Lunixi-Payment/lunixi-java.git
 cd lunixi-java
 gradle build publishToMavenLocal -PlunixiUnsigned
 ```
 
 ```groovy
 repositories { mavenLocal(); mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.0' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
 ```
 
-Maven uygulamalarında aynı groupId/artifactId/version kullanılır; varsayılan yerel depo otomatik aranır. CI herhangi bir kayıt deposuna yükleme yapmaz. İmzasız `centralBundle` yalnız paket yapısını doğrular; Central yayını ayrı imzalı sürüm işlemi gerektirir.
+Maven bu geliştirme kurulumu için varsayılan yerel depoyu otomatik okur. Kaynak derleme komutları uzak kayıt deposuna yayın yapmaz. İmzasız `centralBundle` yalnız paket yapısını doğrular; registry yayını ayrı yetkilendirilmiş imzalı sürüm işlemi gerektirir.
 
 ## Sunucu yapılandırması
 
@@ -56,7 +83,7 @@ LunixiClient client = LunixiClient.create(LunixiConfig.builder()
 
 Yerel JDBC deposu, otomatik yapılandırma ve çalışan MVC uygulaması için [Lunixi Spring Boot Starter](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter), [checkout örneği](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) ve [Spring rehberi](https://docs.lunixi.com/tr/sdks/spring-boot) kullanılır. SDK test dosya deposunu üretimde kullanmayın.
 
-Yönlendirmeli form `https://pay.lunixi.com/payment/<token>` adresinde açılır. Gömülü akış resmî Lunixi tarayıcı paketini kullanır. Açık ödeme yöntemleri, yemek kartı, alışveriş kredisi, taksit, sigorta ve çoklu kart Lunixi paneli/formundan yönetilir. Token yalnız yerel oturum/müşteri/sipariş sahipliği ve CSRF kontrolü sonrasında döner. Sağlayıcının tarayıcı POST dönüşü bilgilendirici 303 ile sahiplik kontrolü olan GET'e geçer; başarı alanı ödeme kanıtı değildir.
+Varsayılan gömülü akış mağazanın kendi sayfasında resmî Lunixi tarayıcı paketi ve `checkout.token()` ile açılır. İsteğe bağlı `checkout.hostedUrl()`, backend `paymentPageUrl` değerini aynen döndürür; gömülü token’dan adres üretilmez. Açık ödeme yöntemleri, yemek kartı, alışveriş kredisi, taksit, sigorta ve çoklu kart Lunixi paneli/formundan yönetilir. Token yalnız yerel oturum/müşteri/sipariş sahipliği ve CSRF kontrolü sonrasında döner. Sağlayıcının tarayıcı POST dönüşü bilgilendirici 303 ile sahiplik kontrolü olan GET'e geçer; başarı alanı ödeme kanıtı değildir.
 
 ## Fraud ve hatalar
 

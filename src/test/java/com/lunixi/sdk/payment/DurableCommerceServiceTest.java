@@ -73,6 +73,7 @@ class DurableCommerceServiceTest {
         CheckoutSession first = start();
         Map<String, Object> persisted = store.record();
         assertFalse(persisted.get("token").toString().contains(DurableCommerceFixture.TOKEN));
+        assertFalse(persisted.get("paymentPageUrl").toString().contains("https://pay.lunixi.com"));
         String key = (String) persisted.get("key");
         CommerceService restarted = new CommerceService(DurableCommerceFixture.client(gateway),
                 new DurableCommerceFixture.FileLedger(directory.resolve("native-ledger.json")), DurableCommerceFixture.box());
@@ -80,8 +81,22 @@ class DurableCommerceServiceTest {
                 "https://shop.invalid/return", true, false, "en");
         assertEquals(first.paymentId(), cached.paymentId());
         assertEquals(first.token(), cached.token());
+        assertEquals("https://pay.lunixi.com/payment/hosted-fixture-session", cached.hostedUrl());
+        assertEquals(first.hostedUrl(), cached.hostedUrl());
         assertEquals(key, store.record().get("key"));
         assertEquals(1, gateway.bodies.size(), "A cache reopen must not create another payment.");
+    }
+
+    @Test void legacyAttemptWithoutHostedUrlRetainsItsEmbeddedTokenKeyBodyAndFinancialHistory() {
+        CheckoutSession first = start();
+        String key = (String) store.record().get("key");
+        store.transaction(DurableCommerceFixture.ORDER, access -> {
+            Map<String, Object> legacy = access.load(); legacy.remove("paymentPageUrl"); access.save(legacy); return null;
+        });
+        CheckoutSession cached = start();
+        assertEquals(first.paymentId(), cached.paymentId()); assertEquals(first.token(), cached.token());
+        assertThrows(IllegalStateException.class, cached::hostedUrl);
+        assertEquals(key, store.record().get("key")); assertEquals(1, gateway.bodies.size());
     }
 
     @Test void timeoutRetryReusesExactPersistedKeyAndBodyWithoutRotatingAnAttempt() {

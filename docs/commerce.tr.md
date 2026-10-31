@@ -1,6 +1,6 @@
 # Ödeme ve kalıcı yerel checkout
 
-Java SDK 0.2.0, kimlik doğrulamalı ödeme API'leri ile kalıcı checkout rezervasyonu/mutabakatını içerir. JDK 17+ gerekir; harici çalışma zamanı kütüphanesi yoktur. [Kurulum](../README.tr.md) · [English](commerce.en.md) · [Çalışan Spring örneği](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) · [Spring rehberi](https://docs.lunixi.com/tr/sdks/spring-boot).
+Java SDK 0.2.1, kimlik doğrulamalı ödeme API'leri ile kalıcı checkout rezervasyonu/mutabakatını içerir. JDK 17+ gerekir; harici çalışma zamanı kütüphanesi yoktur. [Kurulum](../README.tr.md) · [English](commerce.en.md) · [Çalışan Spring örneği](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) · [Spring rehberi](https://docs.lunixi.com/tr/sdks/spring-boot).
 
 ## Tam tutar ve kalıcı sipariş
 
@@ -19,11 +19,12 @@ CommerceService commerce = new CommerceService(client, nativeStore, box);
 OrderSnapshot order = new OrderSnapshot(merchantId, storedOrderId,
         Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency);
 CheckoutSession checkout = commerce.start(durableOrderKey, order,
-        "https://shop.example/return/owned-order", true, false, "tr");
-String redirect = checkout.hostedUrl();
+        "https://shop.example/return/owned-order", false, false, "tr");
+String browserToken = checkout.token(); // mağazanın kendi sayfasında gömülü form
+// İsteğe bağlı yönlendirme: checkout.hostedUrl(), backend paymentPageUrl değerini aynen döndürür.
 ```
 
-`client/nativeStore` sunucunun enjekte ettiği nesnelerdir. Sipariş anahtarı tenant/mağaza/sipariş bağlamında kalıcıdır. `true` yönlendirmeli form, sonraki `false` anlık tahsilat anlamına gelir. Token yalnız yerel oturum/müşteri/sipariş sahipliği, CSRF ve değişmemiş tutar kontrolünden sonra müşteriye verilir.
+`client/nativeStore` sunucunun enjekte ettiği nesnelerdir. Sipariş anahtarı tenant/mağaza/sipariş bağlamında kalıcıdır. İlk `false` gömülü form, sonraki `false` anlık tahsilat anlamına gelir; açıkça kayıtlı eski yönlendirme tercihleri değiştirilmez. Token yalnız yerel oturum/müşteri/sipariş sahipliği, CSRF ve değişmemiş tutar kontrolünden sonra müşteriye verilir.
 
 Rezervasyon finansal POST'tan önce commit edilir. Sipariş izi, ayarlar, gateway/ortam, özgün anahtar ve zaman saklanır; süreç yeniden açıldığında aynı gövde baytları/anahtar kullanılır. Token bağımsız 32 bayt AES-GCM anahtarıyla şifrelenir ve ihtiyatlı 840 saniye saklanır. Anahtarı DB/web kökü dışında ayrıca yedekleyin; checkout nesnesi veya URL'sini loglamayın.
 
@@ -60,6 +61,9 @@ Her finansal işlem 16–128 ASCII karakterli kalıcı anahtar ister. İşlem ID
 
 ## Form ve tarayıcı dönüşü
 
-Yönlendirmeli adres `checkout.hostedUrl()` ile üretilir. Gömülü form yalnız `https://cdn.lunixi.com/lunixi-checkout.min.js` resmî paketiyle açılır; çalışan Spring örneği gerçek nesne/token/mount sözleşmesini ve CSP'yi gösterir. Yöntemler, yemek kartı, alışveriş kredisi, taksit, sigorta ve çoklu kart Lunixi form/panelinden yönetilir. Kart numarası/CVV sunucuda toplanmaz.
+Varsayılan mağaza içi gömülü formdur. İsteğe bağlı `checkout.hostedUrl()`, backend `paymentPageUrl` değerini aynen döndürür; gömülü token’dan adres üretilmez. Gömülü form yalnız `https://cdn.lunixi.com/lunixi-checkout.min.js` resmî paketiyle açılır; çalışan Spring örneği gerçek nesne/token/mount sözleşmesini ve CSP'yi gösterir. Yöntemler, yemek kartı, alışveriş kredisi, taksit, sigorta ve çoklu kart Lunixi form/panelinden yönetilir. Kart numarası/CVV sunucuda toplanmaz.
 
 Yönlendirmeli/çoklu kart/3DS dönüşü **POST** kullanır. Bilgilendirici uç, SameSite=Lax çerezi gelmeyebileceği için gövdenin tamamını yok sayıp oturum/sipariş/DB/gateway'e erişmeden sabit göreli aynı-site GET adresine 303 dönmelidir. Uygulamada ve proxy'de gövde sınırı koyun. Sonraki GET normal sahiplik/mutabakatı uygular. Yalnız bilgilendirici dönüş ve imzalı webhook'u checkout CSRF dışında tutun; ödeme/yönetici kimlik kontrolünü gevşetmeyin, tarayıcı durum/ID alanını ödeme kanıtı saymayın.
+
+
+Hosted URL ve token kalıcı denemede şifreli saklanır. Eski kayıtta paymentPageUrl yoksa gömülü akış sürer; yönlendirme yeni create, anahtar değişikliği veya adres tahmini yapmadan kapalı kalır. Özgün gövde özeti, origin ayarı ve anahtar korunur.

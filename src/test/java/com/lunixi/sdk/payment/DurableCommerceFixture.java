@@ -181,7 +181,8 @@ final class DurableCommerceFixture {
                 if (loseCreate) {
                     throw new LunixiApiException("Synthetic lost create response", new IOException("fixture-only"));
                 }
-                return new HttpResult(201, Map.of(), Json.stringify(Map.of("data", Map.of("paymentId", PAYMENT, "token", TOKEN))));
+                return new HttpResult(201, Map.of(), Json.stringify(Map.of("data", Map.of("paymentId", PAYMENT, "token", TOKEN,
+                        "paymentPageUrl", "https://pay.lunixi.com/payment/hosted-fixture-session"))));
             }
             if (method.equals("GET") && url.endsWith("/api/v1/payments/" + responsePayment)) {
                 reads++;

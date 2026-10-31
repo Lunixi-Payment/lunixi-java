@@ -36,7 +36,11 @@ public final class CommerceService {
         long age = Instant.now().getEpochSecond() - Money.integer(record.get("createdAt"));
         if (!"".equals(record.get("paymentId")) && !"".equals(record.get("token"))) {
             if (age < 0 || age >= 840) { throw new IllegalStateException("Checkout token expired; reconcile before creating another attempt."); }
-            return new CheckoutSession((String) record.get("paymentId"), box.decrypt((String) record.get("token")));
+            Object storedHostedUrl = record.get("paymentPageUrl");
+            if (storedHostedUrl != null && !(storedHostedUrl instanceof String)) { throw new IllegalStateException("Invalid persisted hosted checkout URL; reconcile the original attempt."); }
+            String encryptedHostedUrl = (String) storedHostedUrl;
+            String paymentPageUrl = encryptedHostedUrl != null && !encryptedHostedUrl.isEmpty() ? box.decrypt(encryptedHostedUrl) : null;
+            return new CheckoutSession((String) record.get("paymentId"), box.decrypt((String) record.get("token")), paymentPageUrl);
         }
         if (age < 0 || age >= 23 * 3600) { throw new IllegalStateException("Financial replay window expired; reconcile without changing the key."); }
         // Map.of has randomized iteration order between JVMs. Financial retry
@@ -46,7 +50,9 @@ public final class CommerceService {
         store.transaction(orderKey, access -> {
             Map<String, Object> current = required(access.load());
             if (!record.get("key").equals(current.get("key")) || (!"".equals(current.get("paymentId")) && !session.paymentId().equals(current.get("paymentId")))) { throw new IllegalStateException("Concurrent attempt identity changed."); }
-            current.put("paymentId", session.paymentId()); current.put("token", box.encrypt(session.token())); access.save(current); return null;
+            current.put("paymentId", session.paymentId()); current.put("token", box.encrypt(session.token()));
+            current.put("paymentPageUrl", session.paymentPageUrl() == null ? "" : box.encrypt(session.paymentPageUrl()));
+            access.save(current); return null;
         });
         return session;
     }

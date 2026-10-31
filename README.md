@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml/badge.svg)](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml) · [Türkçe](README.tr.md) · [Documentation](https://docs.lunixi.com/sdks/java) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
-**0.2.0** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
+**0.2.1** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
 
 | Surface | Included |
 |---|---|
@@ -16,22 +16,49 @@
 
 Subscription, identity, sanctions and KYC do not have complete typed clients in this release. Follow their documented REST contracts separately. This SDK is a server package; it does not collect PAN/CVV or implement a storefront/admin application.
 
-## Install from reviewed source
 
-The Maven coordinate is **`com.lunixi:lunixi-java-sdk:0.2.0`**. A GitHub source tag, local Maven installation or unsigned staging bundle **does not mean Maven Central publication**. Until that exact coordinate is published to Central, build the source tag with **Gradle 9.7.1** and use the local Maven artifact:
+
+0.2.1 source preparation: the last publicly verified Maven Central version is 0.2.0. The new checkout contract requires 0.2.1; registry availability must be verified before deployment.
+
+## Install from Maven Central
+
+Use **[`com.lunixi:lunixi-java-sdk:0.2.1`](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/0.2.1)** with JDK 17+.
+
+Gradle:
+
+```groovy
+repositories { mavenCentral() }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
+```
+
+Maven:
+
+```xml
+<dependency>
+  <groupId>com.lunixi</groupId>
+  <artifactId>lunixi-java-sdk</artifactId>
+  <version>0.2.1</version>
+</dependency>
+```
+
+Maven uses its standard Central repository; no custom repository or local source build is required for this dependency.
+
+### Development source and local Maven alternative
+
+For development, build the reviewed source tag with **Gradle 9.7.1** and install a local Maven artifact:
 
 ```sh
-git clone --depth 1 --branch v0.2.0 https://github.com/Lunixi-Payment/lunixi-java.git
+git clone --depth 1 --branch v0.2.1 https://github.com/Lunixi-Payment/lunixi-java.git
 cd lunixi-java
 gradle build publishToMavenLocal -PlunixiUnsigned
 ```
 
 ```groovy
 repositories { mavenLocal(); mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.0' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
 ```
 
-Maven applications use the same local artifact with groupId `com.lunixi`, artifactId `lunixi-java-sdk`, version `0.2.0`; the default local Maven repository is consulted automatically. CI does not upload to any registry. `centralBundle -PlunixiUnsigned` verifies an unsigned upload layout; Central requires a separately authorized signed release.
+Maven automatically consults its default local repository for this development installation. These source-build commands do not publish remotely. `centralBundle -PlunixiUnsigned` verifies an unsigned upload layout; registry publication requires a separately authorized signed release.
 
 ## Configure the server
 
@@ -56,7 +83,7 @@ Read the [English payment/commerce guide](docs/commerce.en.md) for exact money, 
 
 For a native JDBC ledger, auto-configuration and a runnable MVC application use [Lunixi Spring Boot Starter](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter) and its [checkout sample](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot). [Spring guide](https://docs.lunixi.com/sdks/spring-boot). Do not use the SDK's test file ledger as production storage.
 
-Hosted checkout opens `https://pay.lunixi.com/payment/<token>`; the embedded form uses the official Lunixi browser bundle. Enabled methods, meal cards, shopping credit, installments, insurance and multi-card options remain configured in the Lunixi merchant panel/form. Browser tokens are disclosed only after native session/customer/order ownership and CSRF checks. Provider browser POST returns are informational 303 hops into an owned GET; browser fields never mark paid.
+Merchant-site embedding is the default and uses the original `checkout.token()` with the official browser bundle. Optional `checkout.hostedUrl()` returns the exact validated backend `paymentPageUrl`, never a URL rebuilt from the embedded token. Enabled methods, meal cards, shopping credit, installments, insurance and multi-card options remain configured in the Lunixi merchant panel/form. Browser tokens are disclosed only after native session/customer/order ownership and CSRF checks. Provider browser POST returns are informational 303 hops into an owned GET; browser fields never mark paid.
 
 ## Fraud and errors
 
