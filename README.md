@@ -18,7 +18,7 @@ Subscription, identity, sanctions and KYC do not have complete typed clients in 
 
 
 
-0.2.1 source preparation: the last publicly verified Maven Central version is 0.2.0. The new checkout contract requires 0.2.1; registry availability must be verified before deployment.
+**Java SDK 0.2.1 is published on [Maven Central](https://repo.maven.apache.org/maven2/com/lunixi/lunixi-java-sdk/0.2.1/lunixi-java-sdk-0.2.1.pom).** Its release files were verified byte-for-byte against the signed bundle on 2026-10-31.
 
 ## Install from Maven Central
 
