@@ -1,0 +1,40 @@
+// Build-time checks only; this does not add SDK runtime dependencies.
+initscript {
+    repositories { gradlePluginPortal(); mavenCentral() }
+    dependencies { classpath 'com.github.spotbugs.snom:spotbugs-gradle-plugin:6.5.11' }
+}
+allprojects {
+    afterEvaluate { project ->
+        project.pluginManager.apply(com.github.spotbugs.snom.SpotBugsPlugin)
+        project.spotbugs {
+            toolVersion = '4.10.4'
+            excludeFilter = project.file('tools/spotbugs-exclude.xml')
+            ignoreFailures = false
+            effort = com.github.spotbugs.snom.Effort.valueOf('MAX')
+            reportLevel = com.github.spotbugs.snom.Confidence.valueOf('DEFAULT')
+        }
+        project.tasks.withType(JavaCompile).configureEach { options.compilerArgs << '-Werror' }
+        project.tasks.named('spotbugsMain') {
+            reports { xml { required = true }; html { required = true } }
+        }
+        project.tasks.register('resolvedAuditDependencies') {
+            doLast {
+                def artifacts = new TreeSet<String>()
+                ['testRuntimeClasspath'].each { name ->
+                    project.configurations.getByName(name).resolvedConfiguration.resolvedArtifacts.each { item ->
+                        def id = item.moduleVersion.id
+                        artifacts.add("${id.group}:${id.name}:${id.version}")
+                    }
+                }
+                def runtime = project.configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts
+                if (!runtime.empty) { throw new GradleException('SDK runtime must remain dependency-free') }
+                def output = project.layout.buildDirectory.file('security/dependencies.json').get().asFile
+                output.parentFile.mkdirs()
+                output.text = groovy.json.JsonOutput.toJson(artifacts.collect { coordinate ->
+                    def parts = coordinate.split(':')
+                    [package: [ecosystem: 'Maven', name: "${parts[0]}:${parts[1]}"], version: parts[2]]
+                })
+            }
+        }
+    }
+}

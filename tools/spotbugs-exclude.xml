@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!-- Stateful caller-injected SPI intentionally keeps identity for shared token caching. -->
+  <Match><Class name="com.lunixi.sdk.LunixiConfig$Builder"/><Method name="tokenStore"/><Bug pattern="EI_EXPOSE_REP2"/></Match>
+  <!-- These exact getters expose an deep-unmodifiable defensive copy made by
+       ResponseMaps.immutableCopy. SpotBugs cannot infer its custom helper contract.
+       The public nested-map/list immutability regression proves this contract. -->
+  <Match><Class name="com.lunixi.sdk.exception.LunixiApiException"/><Method name="response"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.fraud.FraudDecision"/><Method name="raw"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.fraud.FraudEventBatchResult"/><Method name="raw"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.fraud.FraudEventResult"/><Method name="raw"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.webhook.WebhookEvent"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.webhook.WebhookEvent"/><Method name="envelope"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <!-- RequestOptions constructor defensively copies and wraps the LinkedHashMap;
+       insertion order is retained for signed queries. Proven by public mutation test. -->
+  <Match><Class name="com.lunixi.sdk.internal.RequestOptions"/><Method name="query"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+</FindBugsFilter>

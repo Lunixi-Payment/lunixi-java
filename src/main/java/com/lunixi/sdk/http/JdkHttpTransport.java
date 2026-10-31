@@ -36,6 +36,7 @@ public final class JdkHttpTransport implements HttpTransport {
      * @param client the client to use
      */
     public JdkHttpTransport(HttpClient client) {
+        if (client == null || client.followRedirects() != HttpClient.Redirect.NEVER) { throw new IllegalArgumentException("The signed HTTP transport must never follow redirects."); }
         this.client = client;
     }
 

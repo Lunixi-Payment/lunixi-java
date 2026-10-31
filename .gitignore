@@ -1,0 +1,7 @@
+/.gradle/
+/build/
+**/.env
+**/.env.*
+**/var/
+**/target/
+*.class

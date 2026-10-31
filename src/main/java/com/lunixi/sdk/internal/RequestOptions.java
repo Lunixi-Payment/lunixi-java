@@ -19,7 +19,7 @@ public final class RequestOptions {
     private RequestOptions(boolean stepUp, String idempotencyKey, Map<String, String> query) {
         this.stepUp = stepUp;
         this.idempotencyKey = idempotencyKey;
-        this.query = query;
+        this.query = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(query));
     }
 
     /** @return options for a plain bearer-authenticated call with no query string */

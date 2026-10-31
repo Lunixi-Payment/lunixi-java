@@ -258,15 +258,18 @@ public final class LunixiConfig {
             privateKey = requireText(privateKey, "privateKey");
 
             baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-            String lower = baseUrl.toLowerCase(Locale.ROOT);
-            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            java.net.URI origin;
+            try { origin = java.net.URI.create(baseUrl); }
+            catch (IllegalArgumentException error) { throw new ConfigurationException("Invalid gateway origin."); }
+            if (!"https".equals(origin.getScheme()) || origin.getHost() == null || origin.getUserInfo() != null || origin.getQuery() != null || origin.getFragment() != null || (origin.getPath() != null && !origin.getPath().isEmpty())) {
                 throw new ConfigurationException(
-                        "'baseUrl' tam bir http(s) adresi olmalı / 'baseUrl' must be an absolute http(s) URL.");
+                        "'baseUrl' must be an HTTPS origin without credentials, path, query or fragment.");
             }
             if (environment == null) {
                 throw new ConfigurationException("'environment' boş olamaz / 'environment' must not be null.");
             }
             authTokenPath = "/" + requireText(authTokenPath, "authTokenPath").replaceAll("^/+", "");
+            if (!authTokenPath.matches("/[a-zA-Z0-9_/-]+") || authTokenPath.contains("//")) { throw new ConfigurationException("Invalid authentication path."); }
             if (timeout == null || timeout.isZero() || timeout.isNegative()) {
                 throw new ConfigurationException(
                         "'timeout' sıfırdan büyük olmalı / 'timeout' must be greater than zero.");

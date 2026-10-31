@@ -317,6 +317,7 @@ public final class Json {
     private static final class Parser {
         private final String text;
         private int position;
+        private int depth;
 
         Parser(String text) {
             this.text = text == null ? "" : text;
@@ -338,6 +339,11 @@ public final class Json {
         }
 
         Object readValue() {
+            if (++depth > 64) { throw new JsonParseException("JSON nesting exceeds the supported limit."); }
+            try { return readLimitedValue(); } finally { depth--; }
+        }
+
+        private Object readLimitedValue() {
             if (atEnd()) {
                 throw new JsonParseException("JSON belgesi beklenmedik şekilde bitti.");
             }
@@ -383,6 +389,7 @@ public final class Json {
                 }
                 position++;
                 skipWhitespace();
+                if (result.containsKey(key)) { throw new JsonParseException("Duplicate JSON object member."); }
                 result.put(key, readValue());
                 skipWhitespace();
                 if (atEnd()) {

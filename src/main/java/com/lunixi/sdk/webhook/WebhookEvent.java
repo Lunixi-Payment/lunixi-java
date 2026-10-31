@@ -13,14 +13,23 @@ public final class WebhookEvent {
     private final String timestamp;
     private final Map<String, Object> data;
     private final Map<String, Object> envelope;
+    private final String rawBodyHash;
+    private final boolean merchantEnvelope;
 
     WebhookEvent(String id, String type, String timestamp,
                  Map<String, Object> data, Map<String, Object> envelope) {
+        this(id, type, timestamp, data, envelope, "", false);
+    }
+
+    WebhookEvent(String id, String type, String timestamp,
+                 Map<String, Object> data, Map<String, Object> envelope, String rawBodyHash, boolean merchantEnvelope) {
         this.id = id;
         this.type = type;
         this.timestamp = timestamp;
         this.data = ResponseMaps.immutableCopy(data);
         this.envelope = ResponseMaps.immutableCopy(envelope);
+        this.rawBodyHash = rawBodyHash;
+        this.merchantEnvelope = merchantEnvelope;
     }
 
     /**
@@ -57,6 +66,12 @@ public final class WebhookEvent {
     public Map<String, Object> envelope() {
         return envelope;
     }
+
+    /** @return SHA-256 of the exact HMAC-authenticated UTF-8 body */
+    public String rawBodyHash() { return rawBodyHash; }
+
+    /** @return whether strict current merchant envelope checks were performed */
+    public boolean isMerchantEnvelope() { return merchantEnvelope; }
 
     /**
      * Reads a field of the payload.

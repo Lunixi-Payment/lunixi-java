@@ -31,6 +31,22 @@ public final class ResponseMaps {
         if (source == null || source.isEmpty()) {
             return Map.of();
         }
-        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
+        Map<String, Object> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(key, immutableValue(value)));
+        return Collections.unmodifiableMap(copy);
+    }
+
+    private static Object immutableValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<Object, Object> copy = new LinkedHashMap<>();
+            map.forEach((key, nested) -> copy.put(key, immutableValue(nested)));
+            return Collections.unmodifiableMap(copy);
+        }
+        if (value instanceof java.util.List<?> list) {
+            java.util.List<Object> copy = new java.util.ArrayList<>(list.size());
+            list.forEach(nested -> copy.add(immutableValue(nested)));
+            return Collections.unmodifiableList(copy);
+        }
+        return value;
     }
 }

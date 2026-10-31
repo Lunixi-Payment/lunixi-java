@@ -57,7 +57,7 @@ publishing {
             from components.java
             pom {
                 name = 'Lunixi Java SDK'
-                description = 'Lunixi platform Java SDK — authentication, request signing and the fraud decision surface.'
+                description = 'Lunixi platform Java SDK — signed payments, durable checkout reconciliation, fraud decisions and verified merchant webhooks.'
                 url = 'https://github.com/Lunixi-Payment/lunixi-java'
                 licenses {
                     license {

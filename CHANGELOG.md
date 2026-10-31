@@ -3,6 +3,14 @@
 `com.lunixi:lunixi-java-sdk` sürüm geçmişi. · Release history of
 `com.lunixi:lunixi-java-sdk`.
 
+## 0.2.0
+
+- Added signed checkout intent, authenticated payment/split reads, capture/refund/void and split-refund clients. Full response envelopes retain settlement details beside data.
+- Added exact minor-unit conversion, immutable order snapshots, split-parent/full-capture evidence, encrypted browser token storage and durable `CommerceService`/native `LedgerStore` integration.
+- Added strict current merchant webhook verification and duplicate JSON/header, depth, HTTPS origin and redirect protections. Existing fraud APIs remain available.
+- Added the Spring Boot Starter integration path. Source tags and Maven artifacts built locally are distinct from Maven Central publication; see README.
+- Security hardening: HTTP/userinfo/path/query gateway URLs now fail at configuration. Unknown `FAILED` stays in review; uncertain create retries retain their original key and stop at 23 hours.
+
 ## 0.1.0
 
 İlk sürüm. · First release.

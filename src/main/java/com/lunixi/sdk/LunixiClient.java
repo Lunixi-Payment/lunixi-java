@@ -4,6 +4,7 @@ import com.lunixi.sdk.auth.Ed25519Signer;
 import com.lunixi.sdk.auth.TokenManager;
 import com.lunixi.sdk.fraud.FraudClient;
 import com.lunixi.sdk.internal.ApiClient;
+import com.lunixi.sdk.payment.PaymentsClient;
 import com.lunixi.sdk.webhook.WebhookVerifier;
 
 /**
@@ -38,12 +39,15 @@ public final class LunixiClient {
     private final TokenManager tokens;
     private final FraudClient fraud;
     private final WebhookVerifier webhooks;
+    private final PaymentsClient payments;
 
     private LunixiClient(LunixiConfig config) {
         this.config = config;
         Ed25519Signer signer = new Ed25519Signer(config.privateKey());
         this.tokens = new TokenManager(config, signer);
-        this.fraud = new FraudClient(new ApiClient(config, signer, tokens));
+        ApiClient api = new ApiClient(config, signer, tokens);
+        this.fraud = new FraudClient(api);
+        this.payments = new PaymentsClient(api);
         this.webhooks = new WebhookVerifier();
     }
 
@@ -65,6 +69,9 @@ public final class LunixiClient {
     public FraudClient fraud() {
         return fraud;
     }
+
+    /** @return checkout intents, authenticated settlement reads and payment mutations */
+    public PaymentsClient payments() { return payments; }
 
     /**
      * The webhook verifier.

@@ -61,6 +61,18 @@ public final class WebhookVerifier {
 
     private static final String SCHEME_V2 = "v2";
 
+    /** Strict current merchant envelope. Generic legacy verify remains available separately. */
+    public WebhookEvent verifyMerchant(String rawBody, Map<String, String> headers, String secret) {
+        if (rawBody == null || rawBody.getBytes(StandardCharsets.UTF_8).length > 1_048_576) { throw new WebhookVerificationException("Webhook body is missing or too large."); }
+        Map<String, String> normal = normalise(headers);
+        WebhookEvent event = verify(rawBody, normal, secret);
+        Object id = event.envelope().get("id"), type = event.envelope().get("type"), data = event.envelope().get("data");
+        if (!(id instanceof String) || ((String) id).isBlank() || !id.equals(normal.get(HEADER_EVENT_ID)) || !(type instanceof String) || ((String) type).isBlank() || !(data instanceof Map)) { throw new WebhookVerificationException("Signed merchant envelope identity/type/data are required."); }
+        String headerType = normal.get(HEADER_EVENT_TYPE);
+        if (headerType != null && !headerType.equals(type)) { throw new WebhookVerificationException("Webhook type conflicts with its signed body."); }
+        return new WebhookEvent(event.id(), event.type(), event.timestamp(), event.data(), event.envelope(), event.rawBodyHash(), true);
+    }
+
     /**
      * Verifies a delivery with the default five-minute replay window.
      *
@@ -144,7 +156,12 @@ public final class WebhookVerifier {
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = data instanceof Map ? (Map<String, Object>) data : envelope;
 
-        return new WebhookEvent(id, type, timestamp, payload, envelope);
+        return new WebhookEvent(id, type, timestamp, payload, envelope, bodyHash(body), false);
+    }
+
+    private static String bodyHash(String body) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body.getBytes(StandardCharsets.UTF_8))); }
+        catch (GeneralSecurityException error) { throw new WebhookVerificationException("SHA-256 is required for authenticated event receipts."); }
     }
 
     private static List<String> v2Items(String header) {
@@ -195,7 +212,9 @@ public final class WebhookVerifier {
         Map<String, String> out = new java.util.HashMap<>(headers.size());
         headers.forEach((key, value) -> {
             if (key != null && value != null) {
-                out.put(key.toLowerCase(Locale.ROOT), value);
+                String normal = key.toLowerCase(Locale.ROOT);
+                if (out.containsKey(normal)) { throw new WebhookVerificationException("Duplicate webhook header name."); }
+                out.put(normal, value);
             }
         });
         return out;
