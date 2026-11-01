@@ -17,11 +17,13 @@ SpotBugs medium/high-confidence findings fail the build. Its exact method filter
 
 Install [Gitleaks](https://github.com/gitleaks/gitleaks) 8.30.1 for `check-secrets.py`. The source scanner exports all source/docs/CI with only generated build/cache/VCS directories excluded, retains default credential rules, and allows only exact reviewed synthetic fixture matches. Its negative control inserts an additional synthetic credential into an allowlisted test file and requires detection, proving the whole file is not exempted. Reports are redacted; no real credential is used.
 
-GitHub Actions are pinned by commit SHA and use read-only repository permissions. CI builds and checks an **unsigned** bundle without registry credentials; it never publishes Maven Central. A source tag, `publishToMavenLocal`, and a signed Central upload are separate operations. The POM coordinate is `com.lunixi:lunixi-java-sdk:0.2.0`. Central requires a separately authorized signed release; unsigned layout acceptance must never be presented as registry availability.
+GitHub Actions are pinned by commit SHA and use read-only repository permissions. CI builds and checks an **unsigned** bundle without registry credentials; it never publishes Maven Central. A source tag, `publishToMavenLocal`, and a signed Central upload are separate operations. The POM coordinate is `com.lunixi:lunixi-java-sdk:1.0.1`. Central requires a separately authorized signed release; unsigned layout acceptance must never be presented as registry availability.
 
 Primary tooling references: [Gradle JVM compatibility](https://docs.gradle.org/current/userguide/compatibility.html), [SpotBugs plugin 6.5.11](https://github.com/spotbugs/spotbugs-gradle-plugin/releases/tag/6.5.11), [OSV API](https://google.github.io/osv.dev/api/), [Gitleaks configuration](https://github.com/gitleaks/gitleaks#configuration).
 
 
 ## 0.2.1 checkout contract regression receipt
+
+**Historical verification receipt:** the following counts and tool results refer to 0.2.1.
 
 Targeted PaymentsTest + DurableCommerceServiceTest: 22 tests passed, zero failures/skips. Strict -Xlint:all/-Werror compilation, SpotBugs (zero findings) and JAR/source/Javadoc packaging passed. Includes exact backend URL retention, malformed/origin-lookalike/dot-path rejection, legacy embedded-only response and encrypted durable URL cache/reopen without key/body rotation. Runtime dependency set remains empty. This focused patch validation does not claim a new full historical suite or live merchant charge.
