@@ -63,7 +63,7 @@ public final class PhysicalPosWriteResult {
 
     /** @return the whole {@code data} object (sibling fields such as {@code closedAssignment}, {@code link}) */
     public Map<String, Object> data() {
-        return data;
+        return java.util.Collections.unmodifiableMap(data);
     }
 
     /**

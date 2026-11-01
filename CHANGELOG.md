@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-11-01
+
+- Keep response envelopes defensively immutable at nested levels and make Physical POS getters explicitly read-only; retain strict money-string admission.
+- Correct Luhn parity handling and document the narrowly scoped management-facade static-analysis exception; update 1.0.1 installation guidance.
+
 ## 1.0.0 — 2026-11-01
 
 - Physical POS payment/item/filter/report money uses canonical signed64 strings; raw numeric/null amounts are rejected before HTTP, malformed monetary 2xx payment replies retain UNKNOWN semantics, and signed webhooks are checked after signature verification.

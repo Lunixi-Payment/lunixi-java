@@ -4,7 +4,7 @@
 
 [English](README.md) · [Dokümantasyon](https://docs.lunixi.com/tr/sdks/java) · [Sürüm geçmişi](CHANGELOG.md) · [Güvenlik](SECURITY.md)
 
-**0.2.1**, mevcut fraud istemcisine ödeme oluşturma, tahsilat/iade/iptal, çoklu kart sorgulama/iadesi ve kalıcı ödeme mutabakatı ekler. **JDK 17+**, **sıfır harici çalışma zamanı bağımlılığı**, MIT lisansı.
+**1.0.1**, mevcut fraud istemcisine ödeme oluşturma, tahsilat/iade/iptal, çoklu kart sorgulama/iadesi ve kalıcı ödeme mutabakatı ekler. **JDK 17+**, **sıfır harici çalışma zamanı bağımlılığı**, MIT lisansı.
 
 | Yüzey | Kapsam |
 |---|---|
@@ -18,17 +18,17 @@ Abonelik, kimlik, yaptırım ve KYC ürünlerinin tüm tipli istemcileri bu sür
 
 
 
-0.2.1 kaynak sürümü hazırlığıdır; Maven Central’da son doğrulanan sürüm 0.2.0’dır. Yeni checkout sözleşmesi 0.2.1 gerektirir; dağıtımdan önce kayıt servisinde erişim doğrulanmalıdır.
+1.0.1 para alanlarını kanonik küçük birim string değerleriyle taşır. [Geçiş rehberini](MIGRATION-1.0.md) uygulayın; aşağıdaki kurulum komutlarını sürüm Maven Central üzerinde kullanılabilir olduğunda çalıştırın.
 
 ## Maven Central üzerinden kurulum
 
-**[`com.lunixi:lunixi-java-sdk:0.2.1`](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/0.2.1)** koordinatını JDK 17+ ile kullanın.
+**[`com.lunixi:lunixi-java-sdk:1.0.1`](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/1.0.1)** koordinatını JDK 17+ ile kullanın.
 
 Gradle:
 
 ```groovy
 repositories { mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:1.0.1' }
 ```
 
 Maven:
@@ -37,7 +37,7 @@ Maven:
 <dependency>
   <groupId>com.lunixi</groupId>
   <artifactId>lunixi-java-sdk</artifactId>
-  <version>0.2.1</version>
+  <version>1.0.1</version>
 </dependency>
 ```
 
@@ -48,14 +48,14 @@ Maven standart Central deposunu kullanır; bu bağımlılık için özel depo ve
 Geliştirme sırasında incelenmiş kaynak etiketini **Gradle 9.7.1** ile derleyip yerel Maven deposuna kurabilirsiniz:
 
 ```sh
-git clone --depth 1 --branch v0.2.1 https://github.com/Lunixi-Payment/lunixi-java.git
+git clone --depth 1 --branch v1.0.1 https://github.com/Lunixi-Payment/lunixi-java.git
 cd lunixi-java
 gradle build publishToMavenLocal -PlunixiUnsigned
 ```
 
 ```groovy
 repositories { mavenLocal(); mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:1.0.1' }
 ```
 
 Maven bu geliştirme kurulumu için varsayılan yerel depoyu otomatik okur. Kaynak derleme komutları uzak kayıt deposuna yayın yapmaz. İmzasız `centralBundle` yalnız paket yapısını doğrular; registry yayını ayrı yetkilendirilmiş imzalı sürüm işlemi gerektirir.
@@ -100,6 +100,6 @@ python3 tools/audit-dependencies.py
 python3 tools/check-secrets.py
 ```
 
-Güncel kaynakta **109 test başarılıdır**; sınır ve iç içe değişmezlik regresyonları da bu sayıya dahildir. İmza, JSON, ham webhook, tam tutar, kalıcı rezervasyon/olay, rollback,23 saat oluşturma sınırı, ortam izolasyonu ve altı ayrı JVM'de aynı istek/anahtar sınanır. Testler canlı tahsilat yapmaz. Java 17 gerçek çalıştırma ve class sürümü 61 denetimiyle doğrulanır.
+Geçmiş doğrulama kaydında **109 test başarılıdır**; sınır ve iç içe değişmezlik regresyonları da bu sayıya dahildir. İmza, JSON, ham webhook, tam tutar, kalıcı rezervasyon/olay, rollback,23 saat oluşturma sınırı, ortam izolasyonu ve altı ayrı JVM'de aynı istek/anahtar sınanır. Testler canlı tahsilat yapmaz. Java 17 gerçek çalıştırma ve class sürümü 61 denetimiyle doğrulanır.
 
 SpotBugs yalnız gerekçeli kesin sınıf/metot filtreleri kullanır. OSV çözümlenmiş test bağımlılıklarını tarar; POM/runtime kontrolü harici çalışma bağımlılığını yasaklar. Gitleaks tüm temiz kaynakta varsayılan kurallarla çalışır; yalnız birebir sentetik test eşleşmeleri hariçtir, eklenen sahte anahtarın yakalandığı ayrıca kanıtlanır. [Denetim ayrıntıları](docs/verification.md).

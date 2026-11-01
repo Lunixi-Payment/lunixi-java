@@ -230,7 +230,7 @@ final class PhysicalPosSupport {
         int sum = 0;
         for (int i = 0; i < digits.length(); i++) {
             int digit = digits.charAt(digits.length() - 1 - i) - '0';
-            if (i % 2 == 1) {
+            if ((i & 1) != 0) {
                 digit *= 2;
                 if (digit > 9) {
                     digit -= 9;

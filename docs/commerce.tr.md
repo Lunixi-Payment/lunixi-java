@@ -1,10 +1,10 @@
 # Ödeme ve kalıcı yerel checkout
 
-Java SDK 0.2.1, kimlik doğrulamalı ödeme API'leri ile kalıcı checkout rezervasyonu/mutabakatını içerir. JDK 17+ gerekir; harici çalışma zamanı kütüphanesi yoktur. [Kurulum](../README.tr.md) · [English](commerce.en.md) · [Çalışan Spring örneği](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) · [Spring rehberi](https://docs.lunixi.com/tr/sdks/spring-boot).
+Java SDK 1.0.1, kimlik doğrulamalı ödeme API'leri ile kalıcı checkout rezervasyonu/mutabakatını içerir. JDK 17+ gerekir; harici çalışma zamanı kütüphanesi yoktur. [Kurulum](../README.tr.md) · [English](commerce.en.md) · [Çalışan Spring örneği](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) · [Spring rehberi](https://docs.lunixi.com/tr/sdks/spring-boot).
 
 ## Tam tutar ve kalıcı sipariş
 
-Merchant, sipariş ID, tutar ve para birimini kimliği doğrulanmış uygulamanın kayıtlı siparişinden okuyun; tarayıcı alanlarını kaynak kabul etmeyin. `Money.minor("19.90",Money.exponent("TRY"))` 1990 döndürür. Float, negatif değer, fazla ondalık veya 9223372036854775807 üzeri tutar ağa çıkmadan reddedilir. JPY 0, KWD 3; desteklenen diğer para birimleri 2 ondalıktır. Eski `price/paidPrice` üst alanları reddedilir.
+Merchant, sipariş ID, tutar ve para birimini kimliği doğrulanmış uygulamanın kayıtlı siparişinden okuyun; tarayıcı alanlarını kaynak kabul etmeyin. `Money.minor("19.90",Money.exponent("TRY"))` `"1990"` string değerini döndürür. Float, negatif değer, fazla ondalık veya 9223372036854775807 üzeri tutar ağa çıkmadan reddedilir. Para biriminin basamak sayısını kullanın: JPY 0, TRY 2, KWD 3 basamaklıdır. Eski `price/paidPrice` üst alanları reddedilir.
 
 ```java
 import com.lunixi.sdk.payment.CommerceService;

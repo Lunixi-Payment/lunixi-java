@@ -2,11 +2,11 @@
 
 # Lunixi Java SDK
 
-**1.0.0 is prepared and unreleased.** The examples below use the breaking canonical money-string API. Use the reviewed local source for this version; historical 0.x registry artifacts do not implement it. See [migration](MIGRATION-1.0.md).
+**Version 1.0.1 uses canonical minor-unit strings for money.** This is a breaking change from 0.x; update request and response handling together. See [migration](MIGRATION-1.0.md).
 
 [![CI](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml/badge.svg)](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml) · [Türkçe](README.tr.md) · [Documentation](https://docs.lunixi.com/sdks/java) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
-**1.0.0** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
+**1.0.1** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
 
 | Surface | Included |
 |---|---|
@@ -22,22 +22,17 @@ Subscription, identity, sanctions and KYC do not have complete typed clients in 
 
 Historical release record: **Java SDK 0.2.1 is published on [Maven Central](https://repo.maven.apache.org/maven2/com/lunixi/lunixi-java-sdk/0.2.1/lunixi-java-sdk-0.2.1.pom).** Its release files were verified byte-for-byte against the signed bundle on 2026-10-31.
 
-## Use the unreleased source
+## Installation
 
-Use the reviewed Java source as a Gradle composite build with JDK 17+ and Gradle 9.7.1:
-
-```groovy
-// settings.gradle
-includeBuild('/absolute/path/to/reviewed/entegrasyon/java')
-```
+Use JDK 17+ and install the dependency after version 1.0.1 is available on Maven Central:
 
 ```groovy
 // build.gradle
 repositories { mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:1.0.0' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:1.0.1' }
 ```
 
-Run `gradle test` in that source checkout for local verification. Publication to Maven Central requires a separate authorized release.
+For Maven, use `<groupId>com.lunixi</groupId>`, `<artifactId>lunixi-java-sdk</artifactId>` and `<version>1.0.1</version>`. Source development can use the matching `v1.0.1` Git tag; normal application installation needs no local composite build.
 
 ## Configure the server
 
@@ -83,4 +78,4 @@ The current source suite has **109 passing tests** covering crypto/canonical ord
 
 SpotBugs uses method-specific reviewed filters for read-only defensive-copy getters and the intentionally shared token-store SPI, with no blanket exclusions. OSV audits resolved test dependencies; runtime dependency/POM checks enforce the zero-dependency claim. The full clean source scan retains default Gitleaks rules, excludes only exact reviewed synthetic fixtures and proves an added credential is rejected. Inspect [verification notes](docs/verification.md).
 
-The prepared 1.0.0 release is unreleased. See [the money-string migration](MIGRATION-1.0.md).
+Before upgrading from 0.x, follow [the money-string migration](MIGRATION-1.0.md).

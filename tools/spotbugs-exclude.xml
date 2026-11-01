@@ -2,6 +2,11 @@
 <FindBugsFilter>
   <!-- Stateful caller-injected SPI intentionally keeps identity for shared token caching. -->
   <Match><Class name="com.lunixi.sdk.LunixiConfig$Builder"/><Method name="tokenStore"/><Bug pattern="EI_EXPOSE_REP2"/></Match>
+  <!-- addTerminalAcquirer sends an HTTP request; it does not mutate the facade.
+       SpotBugs' add* setter heuristic classifies this stateless service as mutable.
+       Its only instance field is the final shared ApiClient; retaining service identity
+       preserves the same signing transport/token cache across management calls. -->
+  <Match><Class name="com.lunixi.sdk.LunixiClient"/><Method name="physicalPosManagement"/><Bug pattern="EI_EXPOSE_REP"/></Match>
   <!-- These exact getters expose an deep-unmodifiable defensive copy made by
        ResponseMaps.immutableCopy. SpotBugs cannot infer its custom helper contract.
        The public nested-map/list immutability regression proves this contract. -->

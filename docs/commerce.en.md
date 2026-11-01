@@ -1,10 +1,10 @@
 # Payments and durable native checkout
 
-Java SDK 0.2.1 exposes authenticated payment APIs plus checkout reservation/reconciliation. JDK 17+; no external runtime libraries. [Install/configure](../README.md). [Türkçe](commerce.tr.md). For a real transaction-capable implementation use the [Spring Boot Starter sample](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) and [Spring guide](https://docs.lunixi.com/sdks/spring-boot).
+Java SDK 1.0.1 exposes authenticated payment APIs plus checkout reservation/reconciliation. JDK 17+; no external runtime libraries. [Install/configure](../README.md). [Türkçe](commerce.tr.md). For a real transaction-capable implementation use the [Spring Boot Starter sample](https://github.com/Lunixi-Payment/lunixi-spring-boot-starter/tree/main/samples/spring-boot) and [Spring guide](https://docs.lunixi.com/sdks/spring-boot).
 
 ## Server order, exact money and reservation
 
-Read merchant identity, order ID, amount and currency from the application's authenticated persisted order. Never accept them from browser form fields. `Money.minor("19.90", Money.exponent("TRY"))` returns 1990; floats, negative values, excess fractional precision and values above 9223372036854775807 fail before a request. JPY has 0 decimals, KWD 3; documented supported remaining currencies use 2. Deprecated top-level `price/paidPrice` are rejected.
+Read merchant identity, order ID, amount and currency from the application's authenticated persisted order. Never accept them from browser form fields. `Money.minor("19.90", Money.exponent("TRY"))` returns the string `"1990"`; floats, negative values, excess fractional precision and values above 9223372036854775807 fail before a request. Use the currency exponent: JPY has 0 decimals, TRY 2 and KWD 3. Deprecated top-level `price/paidPrice` are rejected.
 
 ```java
 import com.lunixi.sdk.payment.CheckoutSession;

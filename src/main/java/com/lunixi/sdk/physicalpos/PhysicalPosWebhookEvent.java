@@ -92,11 +92,11 @@ public final class PhysicalPosWebhookEvent {
 
     /** @return the event payload */
     public Map<String, Object> data() {
-        return data;
+        return java.util.Collections.unmodifiableMap(data);
     }
 
     /** @return the whole delivered envelope */
     public Map<String, Object> raw() {
-        return raw;
+        return java.util.Collections.unmodifiableMap(raw);
     }
 }

@@ -81,6 +81,14 @@ public final class ApiClient {
      * @param envelope   the decoded envelope (a map holding only {@code message} when the body was not JSON)
      */
     public record Exchange(int statusCode, Map<String, Object> envelope) {
+        public Exchange {
+            envelope = ResponseMaps.immutableCopy(envelope);
+        }
+
+        @Override
+        public Map<String, Object> envelope() {
+            return java.util.Collections.unmodifiableMap(envelope);
+        }
     }
 
     /**
