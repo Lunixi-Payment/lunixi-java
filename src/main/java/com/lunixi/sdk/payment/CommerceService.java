@@ -32,8 +32,8 @@ public final class CommerceService {
             }
             Map<String, Object> reserved = new LinkedHashMap<>(); reserved.put("snapshot", order.toMap()); reserved.put("context", context); reserved.put("descriptor", descriptor); reserved.put("key", "lunixi-" + UUID.randomUUID()); reserved.put("createdAt", Instant.now().getEpochSecond()); reserved.put("state", "reserved"); reserved.put("paymentId", ""); reserved.put("token", ""); reserved.put("captured", 0L); reserved.put("refunded", 0L); access.save(reserved); return reserved;
         });
-        if (!java.util.Set.of("reserved", "pending").contains(record.get("state")) || Money.integer(record.get("captured")) > 0) { throw new IllegalStateException("This attempt has concluded; reconcile it before another checkout."); }
-        long age = Instant.now().getEpochSecond() - Money.integer(record.get("createdAt"));
+        if (!java.util.Set.of("reserved", "pending").contains(record.get("state")) || Money.storedInteger(record.get("captured")) > 0) { throw new IllegalStateException("This attempt has concluded; reconcile it before another checkout."); }
+        long age = Instant.now().getEpochSecond() - Money.storedInteger(record.get("createdAt"));
         if (!"".equals(record.get("paymentId")) && !"".equals(record.get("token"))) {
             if (age < 0 || age >= 840) { throw new IllegalStateException("Checkout token expired; reconcile before creating another attempt."); }
             Object storedHostedUrl = record.get("paymentPageUrl");
@@ -81,7 +81,7 @@ public final class CommerceService {
         return store.transaction(orderKey, access -> {
             Map<String, Object> current = required(access.load());
             if (!record.get("key").equals(current.get("key")) || (!"".equals(current.get("paymentId")) && !paymentId.equals(current.get("paymentId")))) { throw new IllegalStateException("Payment binding changed during reconciliation."); }
-            if (decision.captured() < Money.integer(current.get("captured")) || decision.refunded() < Money.integer(current.get("refunded"))) { throw new IllegalStateException("Stale settlement evidence cannot downgrade an order."); }
+            if (decision.captured() < Money.storedInteger(current.get("captured")) || decision.refunded() < Money.storedInteger(current.get("refunded"))) { throw new IllegalStateException("Stale settlement evidence cannot downgrade an order."); }
             if (event != null && !access.claimEvent(order.merchantId(), event.id(), OrderSnapshot.hash(rawBody))) { return decision; }
             applyNative.accept(decision);
             current.put("paymentId", paymentId); current.put("captured", decision.captured()); current.put("refunded", decision.refunded()); current.put("state", decision.state()); access.save(current); return decision;

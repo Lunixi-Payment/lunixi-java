@@ -68,7 +68,7 @@ class FraudClientTest {
         FraudDecision decision = client.fraud().evaluate(EvaluateRequest.create()
                 .channel(FraudTaxonomy.Channel.STANDALONE_API)
                 .transactionRef("order-1")
-                .payment(Map.of("amount", 25000)));
+                .payment(Map.of("amount", "25000")));
 
         RecordingTransport.Call call = transport.onlyApiCall();
         // Without the global prefix the whole surface answers 404, so the prefix

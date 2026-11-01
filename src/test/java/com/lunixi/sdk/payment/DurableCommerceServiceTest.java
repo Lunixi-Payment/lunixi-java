@@ -113,7 +113,7 @@ class DurableCommerceServiceTest {
 
     @Test void changedOrderOrCheckoutSettingsDoNotDispatchAnotherCreate() {
         loseCreate();
-        OrderSnapshot changed = new OrderSnapshot("merchant_fixture", DurableCommerceFixture.ORDER, 2990, "TRY");
+        OrderSnapshot changed = new OrderSnapshot("merchant_fixture", DurableCommerceFixture.ORDER, "2990", "TRY");
         assertThrows(IllegalStateException.class, () -> service.start(DurableCommerceFixture.ORDER,
                 changed, "https://shop.invalid/return", true, false, "en"));
         assertThrows(IllegalStateException.class, () -> service.start(DurableCommerceFixture.ORDER,

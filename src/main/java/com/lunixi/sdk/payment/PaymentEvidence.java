@@ -18,7 +18,7 @@ public final class PaymentEvidence {
         if (!paymentId.equals(payment.get("id")) || !order.merchantId().equals(payment.get("merchantId")) || !order.orderId().equals(payment.get("orderId")) || !order.currency().equals(payment.get("currency"))) { throw new IllegalStateException("Payment identity differs from the persisted order."); }
         long amount = Money.integer(payment.get("amount"));
         Map<String, Object> metadata = metadata(payment);
-        if (amount < order.amount() || (amount != order.amount() && !order.fingerprint().equals(object(metadata.getOrDefault("lunixiCommerce", Map.of())).get("fingerprint")))) { throw new IllegalStateException("Payment amount differs from the persisted order."); }
+        if (amount < Money.integer(order.amount()) || (amount != Money.integer(order.amount()) && !order.fingerprint().equals(object(metadata.getOrDefault("lunixiCommerce", Map.of())).get("fingerprint")))) { throw new IllegalStateException("Payment amount differs from the persisted order."); }
         if (!(payment.get("status") instanceof String status)) { throw new IllegalStateException("Payment status is required."); }
         if (payment.get("split") instanceof Map || "SETTLED_BY_SPLIT".equals(status)) {
             Map<String, Object> ref = object(payment.get("split"));
@@ -26,7 +26,7 @@ public final class PaymentEvidence {
             Map<String, Object> parent = data(split), aggregate = object(parent.get("aggregate"));
             if (!splitId.equals(parent.get("id")) || !order.orderId().equals(parent.get("orderId")) || !order.currency().equals(parent.get("currency")) || !Boolean.FALSE.equals(parent.get("needsReconciliation")) || !Boolean.TRUE.equals(aggregate.get("amountsBalanced")) || Money.integer(aggregate.get("totalAmount")) != amount || Money.integer(aggregate.get("legsAmount")) != amount) { throw new IllegalStateException("Split requires reconciliation."); }
             long captured = Money.integer(aggregate.get("capturedAmount")), compensated = Money.integer(aggregate.get("compensatedAmount"));
-            long refunded = Money.integer(object(parent.getOrDefault("refund", Map.of())).getOrDefault("refundedAmount", 0L));
+            long refunded = Money.integer(object(parent.getOrDefault("refund", Map.of())).getOrDefault("refundedAmount", "0"));
             if (captured > amount || compensated > captured || refunded > captured) { throw new IllegalStateException("Invalid split settlement balance."); }
             String state = "pending";
             if ("SETTLED_BY_SPLIT".equals(status) && "COMPLETED".equals(parent.get("status")) && captured == amount && compensated == 0) { state = refunded == 0 ? "paid" : (refunded == captured ? "refunded" : "partially_refunded"); }

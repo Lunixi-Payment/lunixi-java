@@ -5,6 +5,8 @@ import com.lunixi.sdk.auth.TokenManager;
 import com.lunixi.sdk.fraud.FraudClient;
 import com.lunixi.sdk.internal.ApiClient;
 import com.lunixi.sdk.payment.PaymentsClient;
+import com.lunixi.sdk.physicalpos.PhysicalPosClient;
+import com.lunixi.sdk.physicalpos.PhysicalPosManagementClient;
 import com.lunixi.sdk.webhook.WebhookVerifier;
 
 /**
@@ -40,6 +42,8 @@ public final class LunixiClient {
     private final FraudClient fraud;
     private final WebhookVerifier webhooks;
     private final PaymentsClient payments;
+    private final PhysicalPosClient physicalPos;
+    private final PhysicalPosManagementClient physicalPosManagement;
 
     private LunixiClient(LunixiConfig config) {
         this.config = config;
@@ -48,6 +52,8 @@ public final class LunixiClient {
         ApiClient api = new ApiClient(config, signer, tokens);
         this.fraud = new FraudClient(api);
         this.payments = new PaymentsClient(api);
+        this.physicalPos = new PhysicalPosClient(api);
+        this.physicalPosManagement = new PhysicalPosManagementClient(api);
         this.webhooks = new WebhookVerifier();
     }
 
@@ -72,6 +78,16 @@ public final class LunixiClient {
 
     /** @return checkout intents, authenticated settlement reads and payment mutations */
     public PaymentsClient payments() { return payments; }
+
+    /** @return physical POS payments, transactions, reports and end-of-day results */
+    public PhysicalPosClient physicalPos() {
+        return physicalPos;
+    }
+
+    /** @return physical POS management: overview, catalog, stores, registers, terminals and devices */
+    public PhysicalPosManagementClient physicalPosManagement() {
+        return physicalPosManagement;
+    }
 
     /**
      * The webhook verifier.

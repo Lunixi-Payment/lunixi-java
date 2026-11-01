@@ -5,8 +5,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class EvidenceTest {
-    OrderSnapshot order = new OrderSnapshot("merchant", "order", 1990L, "TRY");
-    Map<String, Object> response(String status, long captured, long refunded) { return Map.of("data", Map.of("id", "pi", "merchantId", "merchant", "orderId", "order", "amount", 1990L, "currency", "TRY", "status", status), "details", Map.of("capturedAmount", Long.toString(captured), "refundedAmount", Long.toString(refunded))); }
+    OrderSnapshot order = new OrderSnapshot("merchant", "order", "1990", "TRY");
+    Map<String, Object> response(String status, long captured, long refunded) { return Map.of("data", Map.of("id", "pi", "merchantId", "merchant", "orderId", "order", "amount", "1990", "currency", "TRY", "status", status), "details", Map.of("capturedAmount", Long.toString(captured), "refundedAmount", Long.toString(refunded))); }
     @Test void onlyAuthenticatedFullCapturePaysAnOrder() {
         assertTrue(PaymentEvidence.evaluate(order, "pi", response("CAPTURED", 1990, 0), null).isPaid());
         assertFalse(PaymentEvidence.evaluate(order, "pi", response("AUTHORIZED", 0, 0), null).isPaid());
@@ -16,17 +16,17 @@ class EvidenceTest {
     }
     @Test void identitiesAndActualSettlementBalanceMustMatch() {
         assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "other", response("CAPTURED", 1990, 0), null));
-        assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(new OrderSnapshot("another", "order", 1990, "TRY"), "pi", response("CAPTURED", 1990, 0), null));
+        assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(new OrderSnapshot("another", "order", "1990", "TRY"), "pi", response("CAPTURED", 1990, 0), null));
         assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", response("CAPTURED", 1990, 2000), null));
     }
     @Test void aSingleSplitLegOrUnreconciledParentCannotPayAnOrder() {
         var payment = new java.util.LinkedHashMap<>(PaymentEvidence.data(response("SETTLED_BY_SPLIT", 0, 0))); payment.put("split", Map.of("role", "LEG", "splitPaymentId", "split"));
         assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", Map.of("data", payment), Map.of()));
         payment.put("split", Map.of("role", "PARENT", "splitPaymentId", "split"));
-        var aggregate = new java.util.LinkedHashMap<String, Object>(Map.of("totalAmount", 1990L, "legsAmount", 1990L, "amountsBalanced", true, "capturedAmount", 990L, "compensatedAmount", 0L));
+        var aggregate = new java.util.LinkedHashMap<String, Object>(Map.of("totalAmount", "1990", "legsAmount", "1990", "amountsBalanced", true, "capturedAmount", "990", "compensatedAmount", "0"));
         var parent = Map.<String, Object>of("id", "split", "orderId", "order", "currency", "TRY", "needsReconciliation", false, "status", "PROCESSING", "aggregate", aggregate);
         assertFalse(PaymentEvidence.evaluate(order, "pi", Map.of("data", payment), parent).isPaid());
-        aggregate.put("capturedAmount", 1990L); var completed = new java.util.LinkedHashMap<>(parent); completed.put("status", "COMPLETED");
+        aggregate.put("capturedAmount", "1990"); var completed = new java.util.LinkedHashMap<>(parent); completed.put("status", "COMPLETED");
         assertTrue(PaymentEvidence.evaluate(order, "pi", Map.of("data", payment), completed).isPaid());
         completed.put("needsReconciliation", true); assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", Map.of("data", payment), completed));
     }

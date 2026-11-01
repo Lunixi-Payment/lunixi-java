@@ -4,7 +4,7 @@ Java SDK 0.2.1 exposes authenticated payment APIs plus checkout reservation/reco
 
 ## Server order, exact money and reservation
 
-Read merchant identity, order ID, amount and currency from the application's authenticated persisted order. Never accept them from browser form fields. `Money.minor("19.90", Money.exponent("TRY"))` returns 1990; floats, negative values, excess fractional precision and values above 9007199254740991 fail before a request. JPY has 0 decimals, KWD 3; documented supported remaining currencies use 2. Deprecated top-level `price/paidPrice` are rejected.
+Read merchant identity, order ID, amount and currency from the application's authenticated persisted order. Never accept them from browser form fields. `Money.minor("19.90", Money.exponent("TRY"))` returns 1990; floats, negative values, excess fractional precision and values above 9223372036854775807 fail before a request. JPY has 0 decimals, KWD 3; documented supported remaining currencies use 2. Deprecated top-level `price/paidPrice` are rejected.
 
 ```java
 import com.lunixi.sdk.payment.CheckoutSession;
@@ -66,8 +66,8 @@ Full exact capture with valid evidence may be paid; preauthorization, partial ca
 |---|---|
 | `createIntent(request,key)` | POST `/api/v1/payments/intents` |
 | `get(paymentId)` | GET `/api/v1/payments/{id}` |
-| `capture(id,amount,key)` | POST `/api/v1/payments/{id}/capture` |
-| `refund(id,amount,reason,key)` | POST `/api/v1/payments/{id}/refund` |
+| `captureRemaining(id,key)` / `capture(id,amount,key)` | POST `/api/v1/payments/{id}/capture` |
+| `refundRemaining(id,reason,key)` / `refund(id,amount,reason,key)` | POST `/api/v1/payments/{id}/refund` |
 | `voidPayment(id,key)` | POST `/api/v1/payments/{id}/void` |
 | `getSplit(splitId)` | GET `/api/v1/payments/split/{id}` |
 | `refundSplit(splitId,amount,reason,key)` | POST `/api/v1/payments/split/{id}/refund` |

@@ -57,3 +57,19 @@ targetRules = ["generic-api-key"]
 paths = ['''(?:^|/)src/test/java/com/lunixi/sdk/fraud/FraudClientTest\.java$''']
 regexTarget = "line"
 regexes = ['''\A\s*\Qtransport = new RecordingTransport(AUTH_PATH, "at_test_0123456789");\E\s*\z'''] # gitleaks:allow
+
+[[allowlists]]
+description = "Synthetic idempotency UUID used only with the offline Physical POS recording transport"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)src/test/java/com/lunixi/sdk/physicalpos/PhysicalPosClientTest\.java$''']
+regexTarget = "line"
+regexes = ['''\A\s*\Qstatic final String KEY = "7b0c6a1e-2f8d-4c55-9a51-3f0e8d1c2a90";\E\s*\z'''] # gitleaks:allow
+
+[[allowlists]]
+description = "Synthetic UUID in the shared Physical POS idempotency-key validation cases"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)src/test/resources/physical-pos-parity\.json$''']
+regexTarget = "line"
+regexes = ['''\A\s*\Q"key": "7b0c6a1e-2f8d-4c55-9a51-3f0e8d1c2a90",\E\s*\z'''] # gitleaks:allow

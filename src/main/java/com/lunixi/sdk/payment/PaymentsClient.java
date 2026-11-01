@@ -29,20 +29,30 @@ public final class PaymentsClient {
     /** Full envelope is retained because settlement balances are in details beside data. */
     public Map<String, Object> get(String paymentId) { return api.request("GET", BASE + "/" + segment(paymentId), null, RequestOptions.none()); }
     public Map<String, Object> getSplit(String splitId) { return api.request("GET", BASE + "/split/" + segment(splitId), null, RequestOptions.none()); }
-    public Map<String, Object> capture(String id, long amount, String key) { return financial(id, "capture", amount, null, key); }
-    public Map<String, Object> refund(String id, long amount, String reason, String key) { return financial(id, "refund", amount, reason, key); }
+    /** Capture an explicit positive amount. Null is rejected; use captureRemaining for full capture. */
+    public Map<String, Object> capture(String id, String amount, String key) { positiveAmount(amount); return financial(id, "capture", amount, null, key); }
+    /** Capture the remaining authorization without an amount field. */
+    public Map<String, Object> captureRemaining(String id, String key) { return financial(id, "capture", null, null, key); }
+    /** Refund an explicit positive amount. Null is rejected; use refundRemaining for the remaining balance. */
+    public Map<String, Object> refund(String id, String amount, String reason, String key) { positiveAmount(amount); return financial(id, "refund", amount, reason, key); }
+    /** Refund the remaining balance without an amount field. */
+    public Map<String, Object> refundRemaining(String id, String reason, String key) { return financial(id, "refund", null, reason, key); }
     public Map<String, Object> voidPayment(String id, String key) { return api.request("POST", BASE + "/" + segment(id) + "/void", null, mutation(key)); }
-    public Map<String, Object> refundSplit(String id, long amount, String reason, String key) {
+    public Map<String, Object> refundSplit(String id, String amount, String reason, String key) {
+        if (amount == null) { throw new IllegalArgumentException("A split refund amount is required."); }
         Map<String, Object> body = amountBody(amount, reason);
         return api.request("POST", BASE + "/split/" + segment(id) + "/refund", body, mutation(key));
     }
-    private Map<String, Object> financial(String id, String action, long amount, String reason, String key) {
+    private Map<String, Object> financial(String id, String action, String amount, String reason, String key) {
         Map<String, Object> body = amountBody(amount, reason); body.put("paymentIntentId", id);
         return api.request("POST", BASE + "/" + segment(id) + "/" + action, body, mutation(key));
     }
-    private static Map<String, Object> amountBody(long amount, String reason) {
+    private static void positiveAmount(String amount) {
         if (Money.integer(amount) < 1) { throw new IllegalArgumentException("Positive minor units are required."); }
-        Map<String, Object> body = new LinkedHashMap<>(); body.put("amount", amount);
+    }
+    private static Map<String, Object> amountBody(String amount, String reason) {
+        if (amount != null && Money.integer(amount) < 1) { throw new IllegalArgumentException("Positive minor units are required."); }
+        Map<String, Object> body = new LinkedHashMap<>(); if (amount != null) { body.put("amount", amount); }
         if (reason != null && !reason.isBlank()) { body.put("reason", reason); }
         return body;
     }

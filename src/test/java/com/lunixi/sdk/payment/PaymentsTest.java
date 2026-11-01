@@ -24,7 +24,7 @@ class PaymentsTest {
         keys = Ed25519KeyPair.generate(); transport = new RecordingTransport("/api/v1/auth/token", "fixture-only");
         client = LunixiClient.create(LunixiConfig.builder().baseUrl("https://gateway.invalid").keyId("test-key").privateKey(keys.privateKeyPem()).transport(transport).maxRetries(0).build());
     }
-    Map<String, Object> request() { return Map.of("amount", 1990L, "currency", "TRY", "orderId", "order-1", "callbackUrl", "https://shop.invalid/return"); }
+    Map<String, Object> request() { return Map.of("amount", "1990", "currency", "TRY", "orderId", "order-1", "callbackUrl", "https://shop.invalid/return"); }
     @Test void signsTheExactIntentBodyAndReadsActualPaymentIdToken() throws Exception {
         transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"embedded-only-token\",\"paymentPageUrl\":\"https://pay.lunixi.com/payment/hosted-origin-token-012345\"}}");
         CheckoutSession result = client.payments().createIntent(request(), KEY);
@@ -80,17 +80,35 @@ class PaymentsTest {
         assertThrows(IllegalArgumentException.class, () -> client.payments().get(".."));
     }
     @Test void financialWritesRequireStableKeysAndExplicitMinorUnits() {
-        transport.enqueue(202, "{\"data\":{\"status\":\"PROCESSING\"}}"); client.payments().refund("pi/1", 990, "Customer refund", KEY);
-        var call = transport.onlyApiCall(); assertTrue(call.url.endsWith("/pi%2F1/refund")); assertEquals(990L, Json.parseObject(call.body).get("amount")); assertEquals("pi/1", Json.parseObject(call.body).get("paymentIntentId"));
+        transport.enqueue(202, "{\"data\":{\"status\":\"PROCESSING\"}}"); client.payments().refund("pi/1", "990", "Customer refund", KEY);
+        var call = transport.onlyApiCall(); assertTrue(call.url.endsWith("/pi%2F1/refund")); assertEquals("990", Json.parseObject(call.body).get("amount")); assertEquals("pi/1", Json.parseObject(call.body).get("paymentIntentId"));
         assertNotNull(call.headers.get(CanonicalRequest.HEADER_SIGNATURE));
-        assertThrows(IllegalArgumentException.class, () -> client.payments().capture("pi-1", -1, KEY));
+        assertThrows(IllegalArgumentException.class, () -> client.payments().capture("pi-1", "-1", KEY));
         assertThrows(IllegalArgumentException.class, () -> client.payments().voidPayment("pi-1", "header\r\ninjection"));
     }
+    @Test void explicitNullNeverBecomesRemainingCaptureOrRefund() {
+        assertThrows(IllegalArgumentException.class, () -> client.payments().capture("pi-1", null, KEY));
+        assertThrows(IllegalArgumentException.class, () -> client.payments().refund("pi-1", null, null, KEY));
+        var api = new com.lunixi.sdk.internal.ApiClient(client.config(), new Ed25519Signer(client.config().privateKey()), client.tokens());
+        var body = new java.util.LinkedHashMap<String, Object>(); body.put("amount", null);
+        for (String operation : new String[]{"capture", "refund"}) {
+            assertThrows(IllegalArgumentException.class, () -> api.request("POST", "/api/v1/payments/pi-1/" + operation, body,
+                com.lunixi.sdk.internal.RequestOptions.builder().stepUp(true).idempotencyKey(KEY).build()));
+        }
+        assertTrue(transport.calls().isEmpty());
+        transport.enqueue(200, "{\"data\":{\"status\":\"PROCESSING\"}}");
+        client.payments().captureRemaining("pi-1", KEY);
+        transport.enqueue(200, "{\"data\":{\"status\":\"PROCESSING\"}}");
+        client.payments().refundRemaining("pi-1", "Customer request", KEY);
+        for (var call : transport.calls()) {
+            if (!call.url.endsWith("/auth/token")) assertFalse(Json.parseObject(call.body).containsKey("amount"));
+        }
+    }
     @Test void exactMoneyNeverRoundsFractionalCentsOrAcceptsFloatingPoint() {
-        assertEquals(1990, Money.minor("19.900", 2)); assertEquals(Money.MAX, Money.integer("9007199254740991"));
-        assertEquals(19, Money.minor("19", 0)); assertEquals(1234, Money.minor("1.234", 3));
+        assertEquals("1990", Money.minor("19.900", 2)); assertEquals(Money.MAX, Money.integer("9223372036854775807"));
+        assertEquals("19", Money.minor("19", 0)); assertEquals("1234", Money.minor("1.234", 3));
         assertThrows(ArithmeticException.class, () -> Money.minor("19.901", 2)); assertThrows(IllegalArgumentException.class, () -> Money.integer(1.0));
-        assertThrows(IllegalArgumentException.class, () -> Money.integer("9007199254740992")); assertThrows(IllegalArgumentException.class, () -> Money.minor("1e2", 2));
+        assertThrows(IllegalArgumentException.class, () -> Money.integer("9223372036854775808")); assertThrows(IllegalArgumentException.class, () -> Money.minor("1e2", 2));
         for (String currency : new String[]{"TRY", "USD", "EUR", "GBP", "RUB", "AED", "SAR", "QAR", "CHF", "CAD", "AUD", "CNY", "AZN"}) { assertEquals(2, Money.exponent(currency)); }
         assertEquals(0, Money.exponent("JPY")); assertEquals(3, Money.exponent("KWD")); assertThrows(IllegalArgumentException.class, () -> Money.exponent("NOK"));
     }

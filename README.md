@@ -2,9 +2,11 @@
 
 # Lunixi Java SDK
 
+**1.0.0 is prepared and unreleased.** The examples below use the breaking canonical money-string API. Use the reviewed local source for this version; historical 0.x registry artifacts do not implement it. See [migration](MIGRATION-1.0.md).
+
 [![CI](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml/badge.svg)](https://github.com/Lunixi-Payment/lunixi-java/actions/workflows/ci.yml) · [Türkçe](README.tr.md) · [Documentation](https://docs.lunixi.com/sdks/java) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
-**0.2.1** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
+**1.0.0** adds payment intents, capture/refund/void, split payment reads/refunds and durable checkout reconciliation to the existing fraud SDK. Requires **JDK 17+**; **zero external runtime dependencies**. MIT license.
 
 | Surface | Included |
 |---|---|
@@ -18,47 +20,24 @@ Subscription, identity, sanctions and KYC do not have complete typed clients in 
 
 
 
-**Java SDK 0.2.1 is published on [Maven Central](https://repo.maven.apache.org/maven2/com/lunixi/lunixi-java-sdk/0.2.1/lunixi-java-sdk-0.2.1.pom).** Its release files were verified byte-for-byte against the signed bundle on 2026-10-31.
+Historical release record: **Java SDK 0.2.1 is published on [Maven Central](https://repo.maven.apache.org/maven2/com/lunixi/lunixi-java-sdk/0.2.1/lunixi-java-sdk-0.2.1.pom).** Its release files were verified byte-for-byte against the signed bundle on 2026-10-31.
 
-## Install from Maven Central
+## Use the unreleased source
 
-Use **[`com.lunixi:lunixi-java-sdk:0.2.1`](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/0.2.1)** with JDK 17+.
-
-Gradle:
+Use the reviewed Java source as a Gradle composite build with JDK 17+ and Gradle 9.7.1:
 
 ```groovy
+// settings.gradle
+includeBuild('/absolute/path/to/reviewed/entegrasyon/java')
+```
+
+```groovy
+// build.gradle
 repositories { mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
+dependencies { implementation 'com.lunixi:lunixi-java-sdk:1.0.0' }
 ```
 
-Maven:
-
-```xml
-<dependency>
-  <groupId>com.lunixi</groupId>
-  <artifactId>lunixi-java-sdk</artifactId>
-  <version>0.2.1</version>
-</dependency>
-```
-
-Maven uses its standard Central repository; no custom repository or local source build is required for this dependency.
-
-### Development source and local Maven alternative
-
-For development, build the reviewed source tag with **Gradle 9.7.1** and install a local Maven artifact:
-
-```sh
-git clone --depth 1 --branch v0.2.1 https://github.com/Lunixi-Payment/lunixi-java.git
-cd lunixi-java
-gradle build publishToMavenLocal -PlunixiUnsigned
-```
-
-```groovy
-repositories { mavenLocal(); mavenCentral() }
-dependencies { implementation 'com.lunixi:lunixi-java-sdk:0.2.1' }
-```
-
-Maven automatically consults its default local repository for this development installation. These source-build commands do not publish remotely. `centralBundle -PlunixiUnsigned` verifies an unsigned upload layout; registry publication requires a separately authorized signed release.
+Run `gradle test` in that source checkout for local verification. Publication to Maven Central requires a separate authorized release.
 
 ## Configure the server
 
@@ -103,3 +82,5 @@ python3 tools/check-secrets.py
 The current source suite has **109 passing tests** covering crypto/canonical ordering, strict webhook proof, exact money, persistent reservation/replay, rollback, 23-hour create fencing, context isolation, nested public immutability, malformed alias boundaries and six fresh-JVM byte-identical retries. Tests use synthetic external transport and do not charge a merchant. JDK 17 compatibility is checked by actual execution and class-file version61 inspection.
 
 SpotBugs uses method-specific reviewed filters for read-only defensive-copy getters and the intentionally shared token-store SPI, with no blanket exclusions. OSV audits resolved test dependencies; runtime dependency/POM checks enforce the zero-dependency claim. The full clean source scan retains default Gitleaks rules, excludes only exact reviewed synthetic fixtures and proves an added credential is rejected. Inspect [verification notes](docs/verification.md).
+
+The prepared 1.0.0 release is unreleased. See [the money-string migration](MIGRATION-1.0.md).

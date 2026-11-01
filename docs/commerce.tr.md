@@ -4,7 +4,7 @@ Java SDK 0.2.1, kimlik doğrulamalı ödeme API'leri ile kalıcı checkout rezer
 
 ## Tam tutar ve kalıcı sipariş
 
-Merchant, sipariş ID, tutar ve para birimini kimliği doğrulanmış uygulamanın kayıtlı siparişinden okuyun; tarayıcı alanlarını kaynak kabul etmeyin. `Money.minor("19.90",Money.exponent("TRY"))` 1990 döndürür. Float, negatif değer, fazla ondalık veya 9007199254740991 üzeri tutar ağa çıkmadan reddedilir. JPY 0, KWD 3; desteklenen diğer para birimleri 2 ondalıktır. Eski `price/paidPrice` üst alanları reddedilir.
+Merchant, sipariş ID, tutar ve para birimini kimliği doğrulanmış uygulamanın kayıtlı siparişinden okuyun; tarayıcı alanlarını kaynak kabul etmeyin. `Money.minor("19.90",Money.exponent("TRY"))` 1990 döndürür. Float, negatif değer, fazla ondalık veya 9223372036854775807 üzeri tutar ağa çıkmadan reddedilir. JPY 0, KWD 3; desteklenen diğer para birimleri 2 ondalıktır. Eski `price/paidPrice` üst alanları reddedilir.
 
 ```java
 import com.lunixi.sdk.payment.CommerceService;

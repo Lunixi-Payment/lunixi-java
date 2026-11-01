@@ -34,6 +34,7 @@ import com.lunixi.sdk.json.Json;
  *       Without one, a timed-out write may well have landed, and a blind retry
  *       would submit it a second time.</li>
  *   <li>{@code 4xx} → never retried.</li>
+ *   <li>{@link RequestOptions#retry()} {@code false} → sent once; the caller runs its own attempts.</li>
  * </ul>
  *
  * <p>This class is SDK internals. Call the gateway through
@@ -54,6 +55,11 @@ public final class ApiClient {
         this.tokens = tokens;
     }
 
+    /** @return the configured number of automatic retries after the first attempt */
+    public int maxRetries() {
+        return config.maxRetries();
+    }
+
     /**
      * Sends one request and returns the decoded response envelope.
      *
@@ -65,6 +71,30 @@ public final class ApiClient {
      * @throws LunixiApiException when the gateway reports an error
      */
     public Map<String, Object> request(String method, String path, Object body, RequestOptions options) {
+        return exchange(method, path, body, options).envelope();
+    }
+
+    /**
+     * The HTTP status and decoded envelope of a successful ({@code 2xx}) exchange.
+     *
+     * @param statusCode the HTTP status the gateway answered with
+     * @param envelope   the decoded envelope (a map holding only {@code message} when the body was not JSON)
+     */
+    public record Exchange(int statusCode, Map<String, Object> envelope) {
+    }
+
+    /**
+     * Same as {@link #request(String, String, Object, RequestOptions)}, but also returns the HTTP status of the
+     * {@code 2xx} answer, for callers that must not infer it from the envelope.
+     *
+     * @param method  HTTP method
+     * @param path    the path, beginning with {@code /}; signed exactly as sent
+     * @param body    the request body value, or {@code null}
+     * @param options per-call options
+     * @return the HTTP status and the decoded envelope
+     * @throws LunixiApiException when the gateway reports an error
+     */
+    public Exchange exchange(String method, String path, Object body, RequestOptions options) {
         RequestOptions effective = options == null ? RequestOptions.none() : options;
         String upperMethod = method.toUpperCase(java.util.Locale.ROOT);
         String signedPath = path + queryString(effective.query());
@@ -74,10 +104,13 @@ public final class ApiClient {
         // sent as the body; serialising twice would risk the two drifting apart,
         // and a digest over different bytes than were sent is a 401 with nothing
         // visibly wrong in the request.
+        boolean fiatRoute = path.matches("/api/v1/(payments|wallet|insurance|bank-connect|fraud)(?:[/?].*)?");
+        com.lunixi.sdk.payment.Money.validateOperationAmount(path, body);
+        if (fiatRoute) { com.lunixi.sdk.payment.Money.validateFields(body, false); }
         String rawBody = body == null ? null : Json.stringify(body);
 
-        boolean idempotent = "GET".equals(upperMethod) || "HEAD".equals(upperMethod)
-                || effective.idempotencyKey() != null;
+        boolean idempotent = effective.retry() && ("GET".equals(upperMethod) || "HEAD".equals(upperMethod)
+                || effective.idempotencyKey() != null);
         int maxAttempts = config.maxRetries() + 1;
         boolean reAuthenticated = false;
 
@@ -101,7 +134,8 @@ public final class ApiClient {
                 if (Envelope.isFailure(envelope)) {
                     throw toException(response, envelope);
                 }
-                return envelope;
+                if (fiatRoute) { com.lunixi.sdk.payment.Money.validateFields(envelope, true); }
+                return new Exchange(response.statusCode(), envelope);
             }
 
             if (response.statusCode() == 401 && !reAuthenticated) {

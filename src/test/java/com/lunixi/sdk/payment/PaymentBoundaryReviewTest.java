@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 /** Independent financial boundaries: authenticated totals are necessary, native application remains atomic. */
 class PaymentBoundaryReviewTest {
     @TempDir Path directory;
-    private final OrderSnapshot order = new OrderSnapshot("merchant", "order", 1990, "TRY");
+    private final OrderSnapshot order = new OrderSnapshot("merchant", "order", "1990", "TRY");
 
     private Map<String, Object> response(String status, Object amount, Object captured, Object refunded) {
         Map<String, Object> payment = new LinkedHashMap<>();
@@ -32,7 +32,7 @@ class PaymentBoundaryReviewTest {
     }
 
     @Test void installmentGrossRequiresOriginalBaseOrderFingerprint() {
-        Map<String, Object> response = response("CAPTURED", 2090L, "2090", "0");
+        Map<String, Object> response = response("CAPTURED", "2090", "2090", "0");
         assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", response, null));
         Map<String, Object> payment = PaymentEvidence.data(response);
         payment.put("metadata", Map.of("lunixiCommerce", Map.of("fingerprint", "unrelated-order")));
@@ -40,27 +40,27 @@ class PaymentBoundaryReviewTest {
         payment.put("metadataJson", Json.stringify(Map.of("lunixiCommerce", Map.of("fingerprint", order.fingerprint()))));
         payment.remove("metadata");
         PaymentDecision decision = PaymentEvidence.evaluate(order, "pi", response, null);
-        assertTrue(decision.isPaid()); assertEquals(2090, decision.amount()); assertEquals(1990, order.amount());
+        assertTrue(decision.isPaid()); assertEquals(2090, decision.amount()); assertEquals("1990", order.amount());
     }
 
     @Test void authenticatedSettlementCannotUseFloatingPointOrImpossibleRefundBalances() {
-        assertThrows(IllegalArgumentException.class, () -> PaymentEvidence.evaluate(order, "pi", response("CAPTURED", 1990L, 1990.0, "0"), null));
-        assertThrows(IllegalArgumentException.class, () -> PaymentEvidence.evaluate(order, "pi", response("CAPTURED", 1990L, "1990", "-1"), null));
-        assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", response("REFUNDED", 1990L, "990", "1990"), null));
-        assertEquals("review", PaymentEvidence.evaluate(order, "pi", response("CAPTURED", 1990L, "1990", "1"), null).state());
+        assertThrows(IllegalArgumentException.class, () -> PaymentEvidence.evaluate(order, "pi", response("CAPTURED", "1990", 1990.0, "0"), null));
+        assertThrows(IllegalArgumentException.class, () -> PaymentEvidence.evaluate(order, "pi", response("CAPTURED", "1990", "1990", "-1"), null));
+        assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", response("REFUNDED", "1990", "990", "1990"), null));
+        assertEquals("review", PaymentEvidence.evaluate(order, "pi", response("CAPTURED", "1990", "1990", "1"), null).state());
     }
 
     @Test void aCompletedButCompensatedSplitCannotFulfillAnOrder() {
-        Map<String, Object> response = response("SETTLED_BY_SPLIT", 1990L, "0", "0");
+        Map<String, Object> response = response("SETTLED_BY_SPLIT", "1990", "0", "0");
         PaymentEvidence.data(response).put("split", Map.of("role", "PARENT", "splitPaymentId", "split"));
-        Map<String, Object> aggregate = new LinkedHashMap<>(Map.of("totalAmount", 1990L, "legsAmount", 1990L,
-                "amountsBalanced", true, "capturedAmount", 1990L, "compensatedAmount", 1L));
+        Map<String, Object> aggregate = new LinkedHashMap<>(Map.of("totalAmount", "1990", "legsAmount", "1990",
+                "amountsBalanced", true, "capturedAmount", "1990", "compensatedAmount", "1"));
         Map<String, Object> parent = Map.of("id", "split", "orderId", "order", "currency", "TRY",
                 "status", "COMPLETED", "needsReconciliation", false, "aggregate", aggregate);
         assertFalse(PaymentEvidence.evaluate(order, "pi", response, parent).isPaid());
-        aggregate.put("compensatedAmount", 0L);
+        aggregate.put("compensatedAmount", "0");
         assertTrue(PaymentEvidence.evaluate(order, "pi", response, parent).isPaid());
-        aggregate.put("legsAmount", 1989L);
+        aggregate.put("legsAmount", "1989");
         assertThrows(IllegalStateException.class, () -> PaymentEvidence.evaluate(order, "pi", response, parent));
     }
 

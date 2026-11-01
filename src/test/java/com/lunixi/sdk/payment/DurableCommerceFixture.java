@@ -30,7 +30,7 @@ final class DurableCommerceFixture {
     static final String PAYMENT = "pi_durable_fixture";
     static final String SECRET = "synthetic_webhook_secret_0123456789";
     static final String TOKEN = "synthetic_browser_token_DO_NOT_LOG";
-    static final OrderSnapshot SNAPSHOT = new OrderSnapshot("merchant_fixture", ORDER, 1990L, "TRY");
+    static final OrderSnapshot SNAPSHOT = new OrderSnapshot("merchant_fixture", ORDER, "1990", "TRY");
 
     private DurableCommerceFixture() { }
 

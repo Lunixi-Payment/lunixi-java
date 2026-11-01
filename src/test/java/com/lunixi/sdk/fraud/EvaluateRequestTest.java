@@ -62,7 +62,7 @@ class EvaluateRequestTest {
                 .productContext(FraudTaxonomy.ProductContext.DIRECT_API)
                 .transactionRef("order-2026-0001")
                 .subMerchantRef("sub_88")
-                .payment(Map.of("amount", 25000, "currency", "TRY"))
+                .payment(Map.of("amount", "25000", "currency", "TRY"))
                 .toMap();
 
         assertEquals("standalone", body.get("integrationMode"));

@@ -10,16 +10,18 @@ import java.util.Map;
  */
 public final class RequestOptions {
 
-    private static final RequestOptions NONE = new RequestOptions(false, null, Map.of());
+    private static final RequestOptions NONE = new RequestOptions(false, null, Map.of(), true);
 
     private final boolean stepUp;
     private final String idempotencyKey;
     private final Map<String, String> query;
+    private final boolean retry;
 
-    private RequestOptions(boolean stepUp, String idempotencyKey, Map<String, String> query) {
+    private RequestOptions(boolean stepUp, String idempotencyKey, Map<String, String> query, boolean retry) {
         this.stepUp = stepUp;
         this.idempotencyKey = idempotencyKey;
         this.query = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(query));
+        this.retry = retry;
     }
 
     /** @return options for a plain bearer-authenticated call with no query string */
@@ -47,11 +49,21 @@ public final class RequestOptions {
         return query;
     }
 
+    /**
+     * Whether the transport may retry this call by itself (default {@code true}). A caller that runs its own
+     * attempt loop — and must know the outcome of every attempt — turns it off. The {@code 401}
+     * re-authentication is unaffected.
+     */
+    public boolean retry() {
+        return retry;
+    }
+
     /** Builder for {@link RequestOptions}. */
     public static final class Builder {
 
         private boolean stepUp;
         private String idempotencyKey;
+        private boolean retry = true;
         private final Map<String, String> query = new LinkedHashMap<>();
 
         private Builder() {
@@ -78,6 +90,15 @@ public final class RequestOptions {
         }
 
         /**
+         * @param retry {@code false} to send this call once, without the transport's automatic retry
+         * @return this builder
+         */
+        public Builder retry(boolean retry) {
+            this.retry = retry;
+            return this;
+        }
+
+        /**
          * Adds a query parameter, skipping a null or empty value.
          *
          * @param name  the parameter name
@@ -98,7 +119,7 @@ public final class RequestOptions {
         public RequestOptions build() {
             return new RequestOptions(stepUp, idempotencyKey, Map.copyOf(query).isEmpty()
                     ? Map.of()
-                    : new LinkedHashMap<>(query));
+                    : new LinkedHashMap<>(query), retry);
         }
     }
 }
