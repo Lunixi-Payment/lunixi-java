@@ -18,7 +18,7 @@ Abonelik, kimlik, yaptırım ve KYC ürünlerinin tüm tipli istemcileri bu sür
 
 
 
-1.0.1 para alanlarını kanonik küçük birim string değerleriyle taşır. [Geçiş rehberini](MIGRATION-1.0.md) uygulayın; aşağıdaki kurulum komutlarını sürüm Maven Central üzerinde kullanılabilir olduğunda çalıştırın.
+1.0.1 para alanlarını kanonik küçük birim string değerleriyle taşır. [Geçiş rehberini](MIGRATION-1.0.md) uygulayın; Maven Central üzerinde yayımlanan sürümü aşağıdaki komutlarla kurun.
 
 ## Maven Central üzerinden kurulum
 

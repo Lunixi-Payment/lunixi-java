@@ -24,7 +24,7 @@ Historical release record: **Java SDK 0.2.1 is published on [Maven Central](http
 
 ## Installation
 
-Use JDK 17+ and install the dependency after version 1.0.1 is available on Maven Central:
+Use JDK 17+ and install [version 1.0.1 from Maven Central](https://central.sonatype.com/artifact/com.lunixi/lunixi-java-sdk/1.0.1):
 
 ```groovy
 // build.gradle
