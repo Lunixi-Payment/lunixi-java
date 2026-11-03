@@ -226,4 +226,68 @@ class PhysicalPosManagementClientTest {
         assertEquals(BASE + "/terminal-acquirers/a-1", calls.get(3).url);
         assertEquals("PATCH", calls.get(3).method);
     }
+
+    static final String DEVICE_KEY_ID = "pdk_AAAAAAAAAAAAAAAAAAAAAAAA";
+
+    @Test
+    void deviceIdentityRoutes() {
+        transport.enqueue(200, "{\"data\":{\"items\":[{\"keyId\":\"" + DEVICE_KEY_ID + "\",\"keyStatus\":\"ACTIVE\","
+                + "\"fingerprint\":\"ABCD-EF12\",\"rowVersion\":1}]},"
+                + "\"pageInfo\":{\"hasMore\":true,\"nextCursor\":\"k1\"}}");
+        PhysicalPosPage keys = management.listDeviceKeys(DEVICE_ID, Map.of("limit", 10));
+        assertEquals(DEVICE_KEY_ID, keys.items().get(0).get("keyId"));
+        assertTrue(keys.hasMore());
+        assertEquals("k1", keys.nextCursor().orElseThrow());
+
+        transport.enqueue(200, "{\"data\":{\"key\":{\"keyId\":\"" + DEVICE_KEY_ID + "\",\"keyStatus\":\"REVOKED\"},"
+                + "\"lifecycleStatus\":\"SUSPENDED\",\"replayed\":false}}");
+        Map<String, Object> revoke = new LinkedHashMap<>();
+        revoke.put("rowVersion", 1);
+        revoke.put("reasonCode", "DEVICE_LOST");
+        Map<String, Object> revoked = management.revokeDeviceKey(DEVICE_ID, DEVICE_KEY_ID, revoke);
+        assertEquals("SUSPENDED", revoked.get("lifecycleStatus"));
+        assertEquals(Boolean.FALSE, revoked.get("replayed"));
+
+        transport.enqueue(200, "{\"data\":{\"key\":{\"keyId\":\"" + DEVICE_KEY_ID + "\",\"keyStatus\":\"REVOKED\"},"
+                + "\"lifecycleStatus\":\"SUSPENDED\",\"replayed\":true}}");
+        management.revertDeviceEnrollment(DEVICE_ID, DEVICE_KEY_ID, Map.of("reasonCode", "NOT_MY_DEVICE"));
+
+        transport.enqueue(200, "{\"data\":{\"deviceId\":\"" + DEVICE_ID + "\","
+                + "\"revokedAt\":\"2026-11-02T09:00:00.000Z\",\"revokeReason\":\"MERCHANT_REVOKED\"}}");
+        Map<String, Object> code = management.revokeActivationCode(DEVICE_ID, Map.of("reasonCode", "MERCHANT_REVOKED"));
+        assertEquals("MERCHANT_REVOKED", code.get("revokeReason"));
+
+        List<RecordingTransport.Call> calls = transport.apiCalls();
+        assertEquals(BASE + "/devices/" + DEVICE_ID + "/keys?limit=10", calls.get(0).url);
+        assertEquals("GET", calls.get(0).method);
+        assertEquals(BASE + "/devices/" + DEVICE_ID + "/keys/" + DEVICE_KEY_ID + "/revoke", calls.get(1).url);
+        Map<String, Object> revokeBody = Json.parseObject(calls.get(1).body);
+        assertEquals(1L, revokeBody.get("rowVersion"));
+        assertEquals("DEVICE_LOST", revokeBody.get("reasonCode"));
+        assertEquals(BASE + "/devices/" + DEVICE_ID + "/keys/" + DEVICE_KEY_ID + "/revert-enrollment",
+                calls.get(2).url);
+        assertEquals(Map.of("reasonCode", "NOT_MY_DEVICE"), Json.parseObject(calls.get(2).body));
+        assertEquals(BASE + "/devices/" + DEVICE_ID + "/activation-code/revoke", calls.get(3).url);
+        assertEquals(Map.of("reasonCode", "MERCHANT_REVOKED"), Json.parseObject(calls.get(3).body));
+        for (int i = 1; i < 4; i++) {
+            assertEquals("POST", calls.get(i).method);
+            assertNull(calls.get(i).headers.get("Idempotency-Key"));
+        }
+    }
+
+    @Test
+    void deviceIdentityRequestsAreCheckedLocally() {
+        assertThrows(ConfigurationException.class, () -> management.revokeDeviceKey(DEVICE_ID, "",
+                Map.of("rowVersion", 1, "reasonCode", "OTHER")));
+        assertThrows(ConfigurationException.class, () -> management.revokeDeviceKey(DEVICE_ID, DEVICE_KEY_ID,
+                Map.of("rowVersion", "1", "reasonCode", "OTHER")));
+        assertThrows(ConfigurationException.class, () -> management.revokeDeviceKey(DEVICE_ID, DEVICE_KEY_ID,
+                Map.of("reasonCode", "OTHER")));
+        assertThrows(ConfigurationException.class, () -> management.revertDeviceEnrollment(DEVICE_ID, DEVICE_KEY_ID,
+                Map.of("reasonCode", "OTHER", "rowVersion", 1)));
+        assertThrows(ConfigurationException.class, () -> management.revokeActivationCode(DEVICE_ID, Map.of()));
+        assertThrows(ConfigurationException.class, () -> management.listDeviceKeys(DEVICE_ID,
+                Map.of("includeTotal", true)));
+        assertTrue(transport.calls().isEmpty());
+    }
 }

@@ -156,6 +156,9 @@ class PhysicalPosParityTest {
         shapes.put("updateDevice", PhysicalPosManagementClient.UPDATE_DEVICE);
         shapes.put("assignDevice", PhysicalPosManagementClient.ASSIGN_DEVICE);
         shapes.put("changeDeviceLifecycle", PhysicalPosManagementClient.DEVICE_LIFECYCLE);
+        shapes.put("revokeDeviceKey", PhysicalPosManagementClient.REVOKE_DEVICE_KEY);
+        shapes.put("revertDeviceEnrollment", PhysicalPosManagementClient.REVERT_DEVICE_ENROLLMENT);
+        shapes.put("revokeActivationCode", PhysicalPosManagementClient.REVOKE_ACTIVATION_CODE);
 
         Map<String, List<String>> expected = lists("requestFields");
         assertEquals(expected.keySet(), shapes.keySet());

@@ -12,10 +12,12 @@ import com.lunixi.sdk.physicalpos.PhysicalPosSupport.Shape;
 
 /**
  * Physical POS management — overview, catalog, stores and registers, logical terminals with their bank rows and
- * device link, and devices with their assignment and lifecycle ({@code /api/v1/physical-pos}).
+ * device link, and devices with their assignment, lifecycle and identity keys ({@code /api/v1/physical-pos}).
  *
- * <p>Every call is signed. Reads need {@code physical_pos:view}, writes {@code physical_pos:manage}; a TEST key
- * reads only ({@code 403 physical_pos.environment.test_key_read_only} on writes). Updates and status changes carry
+ * <p>Every call is signed. Reads need {@code physical_pos:view}, writes {@code physical_pos:manage}; the device
+ * identity writes (key revocation, enrollment revert, activation-code revocation) need
+ * {@code physical_pos:identity}. A TEST key reads only ({@code 403 physical_pos.environment.test_key_read_only} on
+ * writes). Updates and status changes carry
  * the record's last read {@code rowVersion} (a JSON integer); a stale one is {@code 409 physical_pos.version_conflict}.
  * Reason codes are closed sets checked by the gateway ({@code 400 physical_pos.input.reason_code_invalid}).
  *
@@ -24,8 +26,8 @@ import com.lunixi.sdk.physicalpos.PhysicalPosSupport.Shape;
  * ({@code replayed: true}, HTTP 200); reusing it for anything else is {@code 409 physical_pos.idempotency_mismatch}.
  * Use a new UUID for every operation.
  *
- * <p>Responses are the envelope's {@code data}, as maps in wire order. Device identity (activation codes, device
- * keys) is not part of this client.
+ * <p>Responses are the envelope's {@code data}, as maps in wire order. Activation codes are issued in the panel only
+ * (an API key cannot issue one).
  */
 public final class PhysicalPosManagementClient {
 
@@ -79,6 +81,15 @@ public final class PhysicalPosManagementClient {
 
     static final Shape DEVICE_LIFECYCLE = new Shape("changeDeviceLifecycle request")
             .rowVersion().text("target", true, false).text("reasonCode", true, false);
+
+    static final Shape REVOKE_DEVICE_KEY = new Shape("revokeDeviceKey request")
+            .rowVersion().text("reasonCode", true, false);
+
+    static final Shape REVERT_DEVICE_ENROLLMENT = new Shape("revertDeviceEnrollment request")
+            .text("reasonCode", true, false);
+
+    static final Shape REVOKE_ACTIVATION_CODE = new Shape("revokeActivationCode request")
+            .text("reasonCode", true, false);
 
     static final List<String> PAGE_FILTERS = PhysicalPosSupport.list("limit", "cursor");
     static final List<String> ENTITY_PAGE_FILTERS = PhysicalPosSupport.list("limit", "cursor", "includeTotal");
@@ -497,6 +508,63 @@ public final class PhysicalPosManagementClient {
         return PhysicalPosSupport.iterate(filters, page -> page(path, page, PAGE_FILTERS, "listDeviceAudit"));
     }
 
+    // ── Device identity ──────────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The device's identity keys, fingerprints only ({@code GET /devices/{deviceId}/keys}; {@code limit},
+     * {@code cursor}). Each key: {@code keyId} ({@code pdk_…}), {@code algorithm} ({@code ED25519}),
+     * {@code keyStatus} ({@code ACTIVE} | {@code SUPERSEDED} | {@code REVOKED}), {@code enrolledVia}
+     * ({@code PAIRING} | {@code ACTIVATION_CODE} | {@code ROTATION}), {@code fingerprint} ({@code XXXX-XXXX}),
+     * {@code lineageRootKeyId}, {@code rotatedFromKeyId}, {@code activatedAt}, {@code supersededAt},
+     * {@code revokedAt}, {@code revokeReason}, {@code rowVersion}.
+     *
+     * @return the device's keys
+     */
+    public PhysicalPosPage listDeviceKeys(String deviceId, Map<String, ?> filters) {
+        return page(devicePath(deviceId) + "/keys", filters, PAGE_FILTERS, "listDeviceKeys");
+    }
+
+    /** @return every identity key of the device, page by page */
+    public Iterable<Map<String, Object>> iterateDeviceKeys(String deviceId, Map<String, ?> filters) {
+        String path = devicePath(deviceId) + "/keys";
+        return PhysicalPosSupport.iterate(filters, page -> page(path, page, PAGE_FILTERS, "listDeviceKeys"));
+    }
+
+    /**
+     * Revokes a device key ({@code POST /devices/{deviceId}/keys/{keyId}/revoke}: {@code rowVersion} (the key's),
+     * {@code reasonCode} {@code DEVICE_LOST} | {@code DEVICE_STOLEN} | {@code KEY_COMPROMISED} |
+     * {@code DEVICE_REPLACED} | {@code MERCHANT_REQUEST} | {@code OTHER}).
+     *
+     * @return {@code {key, lifecycleStatus, replayed}}
+     */
+    public Map<String, Object> revokeDeviceKey(String deviceId, String keyId, Map<String, ?> request) {
+        return PhysicalPosSupport.data(write("POST", keyPath(deviceId, keyId) + "/revoke",
+                PhysicalPosSupport.body(request, REVOKE_DEVICE_KEY)));
+    }
+
+    /**
+     * Reverts an activation-code enrollment: revokes the key and suspends the device
+     * ({@code POST /devices/{deviceId}/keys/{keyId}/revert-enrollment}: {@code reasonCode} {@code NOT_MY_DEVICE} |
+     * {@code SUSPECTED_PHISHING} | {@code WRONG_DEVICE} | {@code OTHER}).
+     *
+     * @return {@code {key, lifecycleStatus, replayed}}
+     */
+    public Map<String, Object> revertDeviceEnrollment(String deviceId, String keyId, Map<String, ?> request) {
+        return PhysicalPosSupport.data(write("POST", keyPath(deviceId, keyId) + "/revert-enrollment",
+                PhysicalPosSupport.body(request, REVERT_DEVICE_ENROLLMENT)));
+    }
+
+    /**
+     * Revokes the device's open activation code ({@code POST /devices/{deviceId}/activation-code/revoke}:
+     * {@code reasonCode} {@code MERCHANT_REVOKED} | {@code DEVICE_LOST} | {@code DEVICE_STOLEN} | {@code OTHER}).
+     *
+     * @return {@code {deviceId, revokedAt, revokeReason}}
+     */
+    public Map<String, Object> revokeActivationCode(String deviceId, Map<String, ?> request) {
+        return PhysicalPosSupport.data(write("POST", devicePath(deviceId) + "/activation-code/revoke",
+                PhysicalPosSupport.body(request, REVOKE_ACTIVATION_CODE)));
+    }
+
     // ── Internals ────────────────────────────────────────────────────────────────────────────────────────────
 
     private static String storePath(String storeId) {
@@ -513,6 +581,10 @@ public final class PhysicalPosManagementClient {
 
     private static String devicePath(String deviceId) {
         return BASE + "/devices/" + PhysicalPosSupport.segment(deviceId, "deviceId");
+    }
+
+    private static String keyPath(String deviceId, String keyId) {
+        return devicePath(deviceId) + "/keys/" + PhysicalPosSupport.segment(keyId, "keyId");
     }
 
     private Map<String, Object> get(String path, Map<String, ?> filters, List<String> allowed, String route) {
