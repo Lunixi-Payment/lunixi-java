@@ -11,7 +11,10 @@ import com.lunixi.sdk.internal.ResponseMaps;
  * <p>Payment payload ({@link #data()}): {@code paymentId, rootPaymentId, original{paymentId, origin}, operation,
  * paymentStatus, statusReason, amountMinor, approvedAmountMinor, currency, installmentCount, deviceId,
  * merchantReference, tender{cardMasked, cardBrand, entryMode}, historySeq, resolvedBy}; a device sale
- * ({@link #isDeviceSale()}) also carries {@code origin} ({@code DEVICE_DIRECT}) and {@code deviceOccurredAt}.
+ * ({@link #isDeviceSale()}) also carries {@code origin} ({@code DEVICE_DIRECT}) and {@code deviceOccurredAt}; a
+ * payment started from a device cashier session carries {@code cashier{cashierId, cashierCode}} ({@link #cashier()};
+ * the key is absent otherwise). End-of-day events ({@code physical_pos.settlement.*}, {@link #CATEGORY_SETTLEMENT})
+ * carry their own payload and no {@code historySeq}.
  * Amounts are minor-unit STRINGS here and in the HTTP API. Delivery order is not guaranteed and a delivery can
  * repeat: deduplicate on {@link #id()} and
  * ignore an event whose {@link #historySeq()} is not greater than the last one you applied for that payment. When
@@ -23,6 +26,8 @@ public final class PhysicalPosWebhookEvent {
     public static final String CATEGORY_PAYMENT = "payment";
     /** {@link #category()} of {@code physical_pos.fiscal_document.*}. */
     public static final String CATEGORY_FISCAL_DOCUMENT = "fiscal_document";
+    /** {@link #category()} of {@code physical_pos.settlement.*} (end of day). */
+    public static final String CATEGORY_SETTLEMENT = "settlement";
     /** {@link #category()} of any other {@code physical_pos.*} type. */
     public static final String CATEGORY_OTHER = "other";
 
@@ -57,7 +62,7 @@ public final class PhysicalPosWebhookEvent {
         return type;
     }
 
-    /** @return {@code payment}, {@code fiscal_document} or {@code other} */
+    /** @return {@code payment}, {@code fiscal_document}, {@code settlement} or {@code other} */
     public String category() {
         return category;
     }
@@ -88,6 +93,19 @@ public final class PhysicalPosWebhookEvent {
      */
     public Optional<Map<String, String>> original() {
         return PhysicalPosSupport.webhookOriginal(data);
+    }
+
+    /** @return {@code true} for a {@code physical_pos.settlement.*} (end-of-day) event */
+    public boolean isSettlementEvent() {
+        return CATEGORY_SETTLEMENT.equals(category);
+    }
+
+    /**
+     * @return the cashier {@code {cashierId, cashierCode}} of a payment started from a device cashier session; empty
+     *         otherwise
+     */
+    public Optional<Map<String, String>> cashier() {
+        return PhysicalPosSupport.webhookCashier(data);
     }
 
     /** @return the event payload */

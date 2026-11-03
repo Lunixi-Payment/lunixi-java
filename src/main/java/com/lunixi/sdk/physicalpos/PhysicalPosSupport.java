@@ -828,6 +828,38 @@ final class PhysicalPosSupport {
         return Optional.of(Collections.unmodifiableMap(normalised));
     }
 
+    /** A payment event's cashier {@code {cashierId, cashierCode}} when both are non-empty strings; extra keys drop. */
+    static Optional<Map<String, String>> webhookCashier(Map<String, Object> data) {
+        Object cashier = data == null ? null : data.get("cashier");
+        if (!(cashier instanceof Map<?, ?> map)) {
+            return Optional.empty();
+        }
+        Object cashierId = map.get("cashierId");
+        Object cashierCode = map.get("cashierCode");
+        if (!(cashierId instanceof String id) || id.isEmpty() || !(cashierCode instanceof String code)
+                || code.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<String, String> normalised = new LinkedHashMap<>();
+        normalised.put("cashierId", id);
+        normalised.put("cashierCode", code);
+        return Optional.of(Collections.unmodifiableMap(normalised));
+    }
+
+    /** {@code payment}, {@code fiscal_document}, {@code settlement} or {@code other} for a {@code physical_pos.*} type. */
+    static String webhookCategory(String type) {
+        if (type.startsWith("physical_pos.payment.")) {
+            return PhysicalPosWebhookEvent.CATEGORY_PAYMENT;
+        }
+        if (type.startsWith("physical_pos.fiscal_document.")) {
+            return PhysicalPosWebhookEvent.CATEGORY_FISCAL_DOCUMENT;
+        }
+        if (type.startsWith("physical_pos.settlement.")) {
+            return PhysicalPosWebhookEvent.CATEGORY_SETTLEMENT;
+        }
+        return PhysicalPosWebhookEvent.CATEGORY_OTHER;
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> details(Map<String, Object> response) {
         Object details = response == null ? null : response.get("details");

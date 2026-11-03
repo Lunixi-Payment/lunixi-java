@@ -159,6 +159,9 @@ class PhysicalPosParityTest {
         shapes.put("revokeDeviceKey", PhysicalPosManagementClient.REVOKE_DEVICE_KEY);
         shapes.put("revertDeviceEnrollment", PhysicalPosManagementClient.REVERT_DEVICE_ENROLLMENT);
         shapes.put("revokeActivationCode", PhysicalPosManagementClient.REVOKE_ACTIVATION_CODE);
+        shapes.put("addTerminalProvider", PhysicalPosManagementClient.ADD_PROVIDER);
+        shapes.put("updateTerminalProvider", PhysicalPosManagementClient.UPDATE_PROVIDER);
+        shapes.put("setSettlementPolicy", PhysicalPosManagementClient.SETTLEMENT_POLICY);
 
         Map<String, List<String>> expected = lists("requestFields");
         assertEquals(expected.keySet(), shapes.keySet());
@@ -177,11 +180,13 @@ class PhysicalPosParityTest {
         filters.put("getSalesSummary", PhysicalPosClient.SALES_SUMMARY_FILTERS);
         filters.put("getTaxSummary", PhysicalPosClient.TAX_SUMMARY_FILTERS);
         filters.put("listSettlements", PhysicalPosClient.SETTLEMENT_FILTERS);
+        filters.put("listSettlementRuns", PhysicalPosClient.SETTLEMENT_RUN_FILTERS);
         filters.put("listDeviceModels", PhysicalPosManagementClient.DEVICE_MODEL_FILTERS);
         filters.put("listStores", PhysicalPosManagementClient.STORE_FILTERS);
         filters.put("listRegisters", PhysicalPosManagementClient.REGISTER_FILTERS);
         filters.put("listTerminals", PhysicalPosManagementClient.TERMINAL_FILTERS);
         filters.put("listTerminalAcquirers", PhysicalPosManagementClient.ENTITY_PAGE_FILTERS);
+        filters.put("listTerminalProviders", PhysicalPosManagementClient.ENTITY_PAGE_FILTERS);
         filters.put("listDevices", PhysicalPosManagementClient.DEVICE_FILTERS);
         filters.put("history", PhysicalPosManagementClient.PAGE_FILTERS);
 
@@ -209,6 +214,27 @@ class PhysicalPosParityTest {
             Object expected = row.get("original");
             assertEquals(java.util.Optional.ofNullable(expected), PhysicalPosSupport.webhookOriginal(data),
                     String.valueOf(row.get("name")));
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void webhookCashierCasesMatchTheFixture() {
+        List<Map<String, Object>> cases = rows("webhookCashierCases");
+        assertTrue(cases.size() > 5);
+        for (Map<String, Object> row : cases) {
+            Map<String, Object> data = (Map<String, Object>) row.get("data");
+            Object expected = row.get("cashier");
+            assertEquals(java.util.Optional.ofNullable(expected), PhysicalPosSupport.webhookCashier(data),
+                    String.valueOf(row.get("name")));
+        }
+    }
+
+    @Test
+    void webhookCategoryCasesMatchTheFixture() {
+        for (Map<String, Object> row : rows("webhookCategoryCases")) {
+            String type = String.valueOf(row.get("type"));
+            assertEquals(row.get("category"), PhysicalPosSupport.webhookCategory(type), type);
         }
     }
 

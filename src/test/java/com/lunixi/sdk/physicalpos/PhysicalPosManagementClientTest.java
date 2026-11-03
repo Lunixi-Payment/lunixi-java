@@ -26,7 +26,7 @@ import com.lunixi.sdk.json.Json;
 import com.lunixi.sdk.support.RecordingTransport;
 
 /*
- * Contract source: nest-payment-gateway apps/api-gateway/src/physical-pos/{stores,terminals,devices,catalog,overview}
+ * Contract source: nest-payment-gateway apps/api-gateway/src/physical-pos/{stores,terminals,devices,settlements,catalog,overview}
  * (api controllers, DTOs, mappers / services). Ids and values below are synthetic.
  */
 class PhysicalPosManagementClientTest {
@@ -228,6 +228,153 @@ class PhysicalPosManagementClientTest {
     }
 
     static final String DEVICE_KEY_ID = "pdk_AAAAAAAAAAAAAAAAAAAAAAAA";
+    static final String PROVIDER_ROW_ID = "66666666-6666-4666-8666-666666666666";
+    static final String VENDOR_ACCOUNT_ID = "77777777-7777-4777-8777-777777777777";
+
+    static String provider(String status) {
+        return "{\"id\":\"" + PROVIDER_ROW_ID + "\",\"terminalId\":\"" + TERMINAL_ID + "\",\"environment\":\"LIVE\","
+                + "\"providerCode\":\"METROPOL\",\"vendorAccountId\":\"" + VENDOR_ACCOUNT_ID + "\","
+                + "\"merchantCode\":\"1000000001\",\"terminalCode\":\"2000000002\",\"productCode\":\"3\","
+                + "\"label\":null,\"providerStatus\":\"" + status + "\",\"rowVersion\":1}";
+    }
+
+    static final String POLICY = "{\"scopeType\":\"ACCOUNT\",\"storeId\":null,\"deviceId\":null,\"active\":true,"
+            + "\"mode\":\"SCHEDULED\",\"scheduleTime\":\"23:30\",\"timeZone\":\"Europe/Istanbul\",\"scheduleDays\":[],"
+            + "\"retryWindowMinutes\":120,\"retryIntervalMinutes\":15,\"offlineBehavior\":\"RETRY_IN_WINDOW\","
+            + "\"overdueAlertHours\":26,\"rowVersion\":2,\"updatedAt\":\"2026-11-03T09:00:00.000Z\"}";
+
+    @Test
+    void terminalProviderRoutes() {
+        transport.enqueue(200, "{\"data\":{\"items\":[" + provider("ACTIVE") + "]},"
+                + "\"pageInfo\":{\"hasMore\":false,\"nextCursor\":null,\"totalCount\":1}}");
+        PhysicalPosPage page = management.listTerminalProviders(TERMINAL_ID, Map.of("includeTotal", true));
+        assertEquals("METROPOL", page.items().get(0).get("providerCode"));
+
+        transport.enqueue(201, "{\"data\":{\"provider\":" + provider("ACTIVE") + ",\"replayed\":false},"
+                + "\"statusCode\":201}");
+        Map<String, Object> add = new LinkedHashMap<>();
+        add.put("vendorAccountId", VENDOR_ACCOUNT_ID);
+        add.put("merchantCode", "1000000001");
+        add.put("terminalCode", "2000000002");
+        add.put("productCode", "3");
+        add.put("label", "Meal");
+        PhysicalPosWriteResult added = management.addTerminalProvider(TERMINAL_ID, add, KEY);
+        assertEquals(201, added.statusCode());
+        assertEquals(PROVIDER_ROW_ID, added.entity().get("id"));
+
+        transport.enqueue(200, "{\"data\":{\"provider\":" + provider("ACTIVE") + ",\"replayed\":true}}");
+        PhysicalPosWriteResult replay = management.addTerminalProvider(TERMINAL_ID, Map.of("vendorAccountId",
+                VENDOR_ACCOUNT_ID, "merchantCode", "1000000001", "terminalCode", "2000000002"), null);
+        assertTrue(replay.replayed());
+        assertEquals(200, replay.statusCode());
+
+        transport.enqueue(200, "{\"data\":{\"provider\":" + provider("DISABLED") + "}}");
+        Map<String, Object> update = new LinkedHashMap<>();
+        update.put("rowVersion", 1);
+        update.put("label", null);
+        update.put("status", "DISABLED");
+        assertEquals("DISABLED", management.updateTerminalProvider(PROVIDER_ROW_ID, update).get("providerStatus"));
+
+        List<RecordingTransport.Call> calls = transport.apiCalls();
+        assertEquals(BASE + "/terminals/" + TERMINAL_ID + "/providers?includeTotal=true", calls.get(0).url);
+        assertEquals("POST", calls.get(1).method);
+        assertEquals(BASE + "/terminals/" + TERMINAL_ID + "/providers", calls.get(1).url);
+        assertEquals(KEY, calls.get(1).headers.get("Idempotency-Key"));
+        assertEquals(add, Json.parseObject(calls.get(1).body));
+        assertTrue(calls.get(2).headers.get("Idempotency-Key").matches("[0-9a-f-]{36}"));
+        assertEquals("PATCH", calls.get(3).method);
+        assertEquals(BASE + "/terminal-providers/" + PROVIDER_ROW_ID, calls.get(3).url);
+        Map<String, Object> patch = Json.parseObject(calls.get(3).body);
+        assertEquals(1L, patch.get("rowVersion"));
+        assertTrue(patch.containsKey("label"));
+        assertNull(patch.get("label"));
+        assertEquals("DISABLED", patch.get("status"));
+        assertNull(calls.get(3).headers.get("Idempotency-Key"));
+    }
+
+    @Test
+    void settlementPolicyRoutesForEveryLevel() {
+        for (int i = 0; i < 9; i++) {
+            transport.enqueue(200, "{\"data\":{\"policy\":" + POLICY + "}}");
+        }
+        transport.enqueue(200, "{\"data\":{\"effective\":{\"deviceId\":\"" + DEVICE_ID + "\","
+                + "\"sourceScopeType\":\"STORE\",\"policy\":" + POLICY + ",\"serverSettlementSupported\":true,"
+                + "\"deviceAutoSupported\":false,\"nextScheduledAt\":null,\"lastSettlementAt\":null,"
+                + "\"overdue\":false,\"scheduleWarning\":null}}}");
+        Map<String, Object> scheduled = new LinkedHashMap<>();
+        scheduled.put("mode", "SCHEDULED");
+        scheduled.put("scheduleTime", "23:30");
+        scheduled.put("timeZone", "Europe/Istanbul");
+        scheduled.put("scheduleDays", List.of("MON", "FRI"));
+        scheduled.put("retryWindowMinutes", 120);
+        scheduled.put("retryIntervalMinutes", 15);
+        scheduled.put("offlineBehavior", "ALERT_IMMEDIATELY");
+        scheduled.put("overdueAlertHours", 26);
+        scheduled.put("expectedRowVersion", 1);
+
+        assertEquals("SCHEDULED", management.getAccountSettlementPolicy().get("mode"));
+        management.setAccountSettlementPolicy(scheduled);
+        management.clearAccountSettlementPolicy();
+        management.getStoreSettlementPolicy(STORE_ID);
+        management.setStoreSettlementPolicy(STORE_ID, Map.of("mode", "MANUAL"));
+        management.clearStoreSettlementPolicy(STORE_ID, 3);
+        management.getDeviceSettlementPolicy(DEVICE_ID);
+        management.setDeviceSettlementPolicy(DEVICE_ID, Map.of("mode", "DEVICE_AUTO", "overdueAlertHours", 30));
+        assertEquals(2L, ((Number) management.clearDeviceSettlementPolicy(DEVICE_ID, 4).get("rowVersion")).longValue());
+        assertEquals("STORE", management.getEffectiveSettlementPolicy(DEVICE_ID).get("sourceScopeType"));
+
+        List<RecordingTransport.Call> calls = transport.apiCalls();
+        List<String> routes = new ArrayList<>();
+        for (RecordingTransport.Call call : calls) {
+            routes.add(call.method + " " + call.url);
+            assertNull(call.headers.get("Idempotency-Key"));
+        }
+        assertEquals(List.of(
+                "GET " + BASE + "/settlement-policy",
+                "PUT " + BASE + "/settlement-policy",
+                "DELETE " + BASE + "/settlement-policy",
+                "GET " + BASE + "/stores/" + STORE_ID + "/settlement-policy",
+                "PUT " + BASE + "/stores/" + STORE_ID + "/settlement-policy",
+                "DELETE " + BASE + "/stores/" + STORE_ID + "/settlement-policy?expectedRowVersion=3",
+                "GET " + BASE + "/devices/" + DEVICE_ID + "/settlement-policy",
+                "PUT " + BASE + "/devices/" + DEVICE_ID + "/settlement-policy",
+                "DELETE " + BASE + "/devices/" + DEVICE_ID + "/settlement-policy?expectedRowVersion=4",
+                "GET " + BASE + "/devices/" + DEVICE_ID + "/settlement-policy/effective"), routes);
+        Map<String, Object> put = Json.parseObject(calls.get(1).body);
+        assertEquals(List.of("MON", "FRI"), put.get("scheduleDays"));
+        assertEquals(120L, put.get("retryWindowMinutes"));
+        assertEquals(1L, put.get("expectedRowVersion"));
+        assertEquals(Map.of("mode", "MANUAL"), Json.parseObject(calls.get(4).body));
+        assertNull(calls.get(2).body);
+    }
+
+    @Test
+    void settlementPolicyAndProviderRequestsAreCheckedLocally() {
+        assertThrows(ConfigurationException.class, () -> management.setAccountSettlementPolicy(Map.of()));
+        assertThrows(ConfigurationException.class, () -> management.setAccountSettlementPolicy(
+                Map.of("mode", "MANUAL", "environment", "LIVE")));
+        assertThrows(ConfigurationException.class, () -> management.setStoreSettlementPolicy(STORE_ID,
+                Map.of("mode", "SCHEDULED", "retryWindowMinutes", "120")));
+        assertThrows(ConfigurationException.class, () -> management.setDeviceSettlementPolicy(DEVICE_ID,
+                Map.of("mode", "SCHEDULED", "scheduleDays", "MON")));
+        assertThrows(ConfigurationException.class, () -> management.setDeviceSettlementPolicy(DEVICE_ID,
+                Map.of("mode", "MANUAL", "expectedRowVersion", 0)));
+        assertThrows(ConfigurationException.class, () -> management.clearStoreSettlementPolicy(STORE_ID, 0));
+        assertThrows(ConfigurationException.class, () -> management.clearDeviceSettlementPolicy("", 1));
+        assertThrows(ConfigurationException.class, () -> management.getEffectiveSettlementPolicy(".."));
+        assertThrows(ConfigurationException.class, () -> management.addTerminalProvider(TERMINAL_ID,
+                Map.of("vendorAccountId", VENDOR_ACCOUNT_ID, "merchantCode", "1"), null));
+        assertThrows(ConfigurationException.class, () -> management.addTerminalProvider(TERMINAL_ID,
+                Map.of("vendorAccountId", VENDOR_ACCOUNT_ID, "merchantCode", "1", "terminalCode", "2",
+                        "providerCode", "METROPOL"), null));
+        assertThrows(ConfigurationException.class, () -> management.updateTerminalProvider(PROVIDER_ROW_ID,
+                Map.of("label", "x")));
+        assertThrows(ConfigurationException.class, () -> management.updateTerminalProvider("",
+                Map.of("rowVersion", 1)));
+        assertThrows(ConfigurationException.class, () -> management.listTerminalProviders(TERMINAL_ID,
+                Map.of("status", "ACTIVE")));
+        assertTrue(transport.calls().isEmpty());
+    }
 
     @Test
     void deviceIdentityRoutes() {

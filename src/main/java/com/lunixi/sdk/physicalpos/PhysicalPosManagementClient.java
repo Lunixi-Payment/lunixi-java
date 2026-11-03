@@ -1,18 +1,22 @@
 package com.lunixi.sdk.physicalpos;
 
 import static com.lunixi.sdk.physicalpos.PhysicalPosSupport.BASE;
+import static com.lunixi.sdk.physicalpos.PhysicalPosSupport.MAX_SAFE_INTEGER;
+import static com.lunixi.sdk.physicalpos.PhysicalPosSupport.ROW_VERSION_MAX;
 
 import java.util.List;
 import java.util.Map;
 
+import com.lunixi.sdk.exception.ConfigurationException;
 import com.lunixi.sdk.http.Envelope;
 import com.lunixi.sdk.internal.ApiClient;
 import com.lunixi.sdk.internal.RequestOptions;
 import com.lunixi.sdk.physicalpos.PhysicalPosSupport.Shape;
 
 /**
- * Physical POS management — overview, catalog, stores and registers, logical terminals with their bank rows and
- * device link, and devices with their assignment, lifecycle and identity keys ({@code /api/v1/physical-pos}).
+ * Physical POS management — overview, catalog, stores and registers, logical terminals with their bank rows,
+ * payment-provider rows and device link, devices with their assignment, lifecycle and identity keys, and the
+ * end-of-day policy ({@code /api/v1/physical-pos}).
  *
  * <p>Every call is signed. Reads need {@code physical_pos:view}, writes {@code physical_pos:manage}; the device
  * identity writes (key revocation, enrollment revert, activation-code revocation) need
@@ -62,6 +66,13 @@ public final class PhysicalPosManagementClient {
     static final Shape UPDATE_ACQUIRER = new Shape("updateTerminalAcquirer request")
             .rowVersion().text("label", false, true).textList("currencies", false).text("status", false, false);
 
+    static final Shape ADD_PROVIDER = new Shape("addTerminalProvider request")
+            .text("vendorAccountId", true, false).text("merchantCode", true, false)
+            .text("terminalCode", true, false).text("productCode", false, false).text("label", false, false);
+
+    static final Shape UPDATE_PROVIDER = new Shape("updateTerminalProvider request")
+            .rowVersion().text("label", false, true).text("status", false, false);
+
     static final Shape CHANGE_TERMINAL_DEVICE = new Shape("changeTerminalDevice request")
             .rowVersion().text("deviceId", true, false).text("reasonCode", true, false);
 
@@ -90,6 +101,15 @@ public final class PhysicalPosManagementClient {
 
     static final Shape REVOKE_ACTIVATION_CODE = new Shape("revokeActivationCode request")
             .text("reasonCode", true, false);
+
+    static final Shape SETTLEMENT_POLICY = new Shape("setSettlementPolicy request")
+            .text("mode", true, false).text("scheduleTime", false, false).text("timeZone", false, false)
+            .textList("scheduleDays", false)
+            .integer("retryWindowMinutes", false, false, -MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
+            .integer("retryIntervalMinutes", false, false, -MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
+            .text("offlineBehavior", false, false)
+            .integer("overdueAlertHours", false, false, -MAX_SAFE_INTEGER, MAX_SAFE_INTEGER)
+            .integer("expectedRowVersion", false, false, 1, ROW_VERSION_MAX);
 
     static final List<String> PAGE_FILTERS = PhysicalPosSupport.list("limit", "cursor");
     static final List<String> ENTITY_PAGE_FILTERS = PhysicalPosSupport.list("limit", "cursor", "includeTotal");
@@ -342,6 +362,51 @@ public final class PhysicalPosManagementClient {
     }
 
     /**
+     * Payment-provider rows of a terminal, e.g. a meal card provider's merchant / terminal / product code
+     * ({@code GET /terminals/{terminalId}/providers}). Each row: {@code id} (the {@code terminalProviderId} a payment
+     * may name), {@code terminalId}, {@code environment}, {@code providerCode}, {@code vendorAccountId},
+     * {@code merchantCode}, {@code terminalCode}, {@code productCode}, {@code label}, {@code providerStatus}
+     * ({@code ACTIVE} | {@code DISABLED}), {@code rowVersion}, {@code createdAt}, {@code updatedAt}.
+     *
+     * @param filters {@code limit}, {@code cursor}, {@code includeTotal}, or {@code null}
+     * @return one page of provider rows
+     */
+    public PhysicalPosPage listTerminalProviders(String terminalId, Map<String, ?> filters) {
+        return page(terminalPath(terminalId) + "/providers", filters, ENTITY_PAGE_FILTERS, "listTerminalProviders");
+    }
+
+    /** @return every provider row of the terminal, page by page */
+    public Iterable<Map<String, Object>> iterateTerminalProviders(String terminalId, Map<String, ?> filters) {
+        return PhysicalPosSupport.iterate(filters, page -> listTerminalProviders(terminalId, page));
+    }
+
+    /**
+     * Adds a payment-provider row ({@code POST /terminals/{terminalId}/providers}, Idempotency-Key):
+     * {@code vendorAccountId}, {@code merchantCode}, {@code terminalCode}, optional {@code productCode} (required by
+     * some providers), {@code label}. The provider comes from the vendor account.
+     *
+     * @param idempotencyKey your key, or {@code null} for a generated UUID
+     * @return {@code provider}, {@code replayed}, status 201 / 200, the key
+     */
+    public PhysicalPosWriteResult addTerminalProvider(String terminalId, Map<String, ?> request,
+                                                      String idempotencyKey) {
+        return keyedWrite(terminalPath(terminalId) + "/providers", PhysicalPosSupport.body(request, ADD_PROVIDER),
+                idempotencyKey, "provider", 201);
+    }
+
+    /**
+     * Updates a provider row ({@code PATCH /terminal-providers/{terminalProviderId}}): {@code rowVersion},
+     * {@code label} ({@code null} clears), {@code status} ({@code ACTIVE} | {@code DISABLED}).
+     *
+     * @return the provider row
+     */
+    public Map<String, Object> updateTerminalProvider(String terminalProviderId, Map<String, ?> request) {
+        String path = BASE + "/terminal-providers/" + PhysicalPosSupport.segment(terminalProviderId,
+                "terminalProviderId");
+        return entity(write("PATCH", path, PhysicalPosSupport.body(request, UPDATE_PROVIDER)), "provider");
+    }
+
+    /**
      * Links the terminal to a device, closing the previous link ({@code POST /terminals/{terminalId}/device-link}:
      * {@code rowVersion}, {@code deviceId}, {@code reasonCode}).
      *
@@ -565,7 +630,131 @@ public final class PhysicalPosManagementClient {
                 PhysicalPosSupport.body(request, REVOKE_ACTIVATION_CODE)));
     }
 
+    // ── End-of-day policy (account → store → device) ─────────────────────────────────────────────────────────
+    //
+    // A level's policy replaces the level above it entirely. set…() sends the full setting: mode (MANUAL | SCHEDULED |
+    // DEVICE_AUTO), optional scheduleTime (HH:mm, SCHEDULED only), timeZone (IANA, default Europe/Istanbul),
+    // scheduleDays (MON … SUN; empty = every day), retryWindowMinutes, retryIntervalMinutes, offlineBehavior
+    // (RETRY_IN_WINDOW | ALERT_IMMEDIATELY), overdueAlertHours, expectedRowVersion. clear…() resets the account to
+    // MANUAL or removes a store / device override. expectedRowVersion is the policy's rowVersion you read (409
+    // physical_pos.version_conflict when it changed); null = last write wins. Reads need physical_pos:view, writes
+    // physical_pos:manage. Every call returns the policy: scopeType, storeId, deviceId, active (false = no setting at
+    // this level), mode, scheduleTime, timeZone, scheduleDays, retryWindowMinutes, retryIntervalMinutes,
+    // offlineBehavior, overdueAlertHours, rowVersion, updatedAt.
+
+    /** @return the account-level policy ({@code GET /settlement-policy}) */
+    public Map<String, Object> getAccountSettlementPolicy() {
+        return entity(get(BASE + "/settlement-policy", null, List.of(), "getAccountSettlementPolicy"), "policy");
+    }
+
+    /** @return the stored account-level policy ({@code PUT /settlement-policy}) */
+    public Map<String, Object> setAccountSettlementPolicy(Map<String, ?> request) {
+        return putPolicy(BASE + "/settlement-policy", request);
+    }
+
+    /**
+     * Resets the account level to the default {@code MANUAL} ({@code DELETE /settlement-policy}).
+     *
+     * @param expectedRowVersion the policy's {@code rowVersion} you read, or {@code null}
+     * @return the policy after the reset
+     */
+    public Map<String, Object> clearAccountSettlementPolicy(Integer expectedRowVersion) {
+        return clearPolicy(BASE + "/settlement-policy", expectedRowVersion);
+    }
+
+    /** {@link #clearAccountSettlementPolicy(Integer)} without a version check. */
+    public Map<String, Object> clearAccountSettlementPolicy() {
+        return clearAccountSettlementPolicy(null);
+    }
+
+    /** @return the store-level policy ({@code active} false when the store inherits) */
+    public Map<String, Object> getStoreSettlementPolicy(String storeId) {
+        return entity(get(storePath(storeId) + "/settlement-policy", null, List.of(), "getStoreSettlementPolicy"),
+                "policy");
+    }
+
+    /** @return the stored store-level policy ({@code PUT /stores/{storeId}/settlement-policy}) */
+    public Map<String, Object> setStoreSettlementPolicy(String storeId, Map<String, ?> request) {
+        return putPolicy(storePath(storeId) + "/settlement-policy", request);
+    }
+
+    /**
+     * Removes the store override; its devices inherit the account level.
+     *
+     * @param expectedRowVersion the policy's {@code rowVersion} you read, or {@code null}
+     * @return the policy after the reset
+     */
+    public Map<String, Object> clearStoreSettlementPolicy(String storeId, Integer expectedRowVersion) {
+        return clearPolicy(storePath(storeId) + "/settlement-policy", expectedRowVersion);
+    }
+
+    /** {@link #clearStoreSettlementPolicy(String, Integer)} without a version check. */
+    public Map<String, Object> clearStoreSettlementPolicy(String storeId) {
+        return clearStoreSettlementPolicy(storeId, null);
+    }
+
+    /** @return the device-level policy ({@code active} false when the device inherits) */
+    public Map<String, Object> getDeviceSettlementPolicy(String deviceId) {
+        return entity(get(devicePath(deviceId) + "/settlement-policy", null, List.of(), "getDeviceSettlementPolicy"),
+                "policy");
+    }
+
+    /**
+     * Sets the device-level policy; {@code DEVICE_AUTO} only on devices that report their end-of-day results.
+     *
+     * @return the stored policy
+     */
+    public Map<String, Object> setDeviceSettlementPolicy(String deviceId, Map<String, ?> request) {
+        return putPolicy(devicePath(deviceId) + "/settlement-policy", request);
+    }
+
+    /**
+     * Removes the device override; the device inherits its store / account policy.
+     *
+     * @param expectedRowVersion the policy's {@code rowVersion} you read, or {@code null}
+     * @return the policy after the reset
+     */
+    public Map<String, Object> clearDeviceSettlementPolicy(String deviceId, Integer expectedRowVersion) {
+        return clearPolicy(devicePath(deviceId) + "/settlement-policy", expectedRowVersion);
+    }
+
+    /** {@link #clearDeviceSettlementPolicy(String, Integer)} without a version check. */
+    public Map<String, Object> clearDeviceSettlementPolicy(String deviceId) {
+        return clearDeviceSettlementPolicy(deviceId, null);
+    }
+
+    /**
+     * The policy a device follows ({@code GET /devices/{deviceId}/settlement-policy/effective}): {@code deviceId},
+     * {@code sourceScopeType} ({@code ACCOUNT} | {@code STORE} | {@code DEVICE}), {@code policy},
+     * {@code serverSettlementSupported}, {@code deviceAutoSupported}, {@code nextScheduledAt},
+     * {@code lastSettlementAt}, {@code overdue}, {@code scheduleWarning}.
+     *
+     * @return the effective policy preview
+     */
+    public Map<String, Object> getEffectiveSettlementPolicy(String deviceId) {
+        return entity(get(devicePath(deviceId) + "/settlement-policy/effective", null, List.of(),
+                "getEffectiveSettlementPolicy"), "effective");
+    }
+
     // ── Internals ────────────────────────────────────────────────────────────────────────────────────────────
+
+    private Map<String, Object> putPolicy(String path, Map<String, ?> request) {
+        return entity(write("PUT", path, PhysicalPosSupport.body(request, SETTLEMENT_POLICY)), "policy");
+    }
+
+    /** {@code DELETE …/settlement-policy}; {@code expectedRowVersion} in the query, left out when {@code null}. */
+    private Map<String, Object> clearPolicy(String path, Integer expectedRowVersion) {
+        RequestOptions.Builder options = RequestOptions.builder().stepUp(true);
+        if (expectedRowVersion != null) {
+            long version = PhysicalPosSupport.integer(expectedRowVersion, "expectedRowVersion");
+            if (version < 1 || version > ROW_VERSION_MAX) {
+                throw new ConfigurationException("'expectedRowVersion' 1.." + ROW_VERSION_MAX
+                        + " olmalı / must be between 1 and " + ROW_VERSION_MAX + ": send the rowVersion you last read.");
+            }
+            options.query("expectedRowVersion", Long.toString(version));
+        }
+        return entity(PhysicalPosSupport.send(api, "DELETE", path, null, options.build(), null), "policy");
+    }
 
     private static String storePath(String storeId) {
         return BASE + "/stores/" + PhysicalPosSupport.segment(storeId, "storeId");

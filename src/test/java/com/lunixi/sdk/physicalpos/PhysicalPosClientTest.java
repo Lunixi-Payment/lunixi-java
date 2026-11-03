@@ -452,6 +452,103 @@ class PhysicalPosClientTest {
         assertThrows(ConfigurationException.class, () -> pos.getTaxSummary(Map.of("groupBy", "DAY")));
     }
 
+    static final String RUN_ID = "0192f3a1-0000-7000-8000-0000000000e1";
+    static final String TERMINAL_PROVIDER_ID = "0192f3a1-0000-7000-8000-0000000000f1";
+
+    static String run(String status) {
+        return "{\"runId\":\"" + RUN_ID + "\",\"deviceId\":\"" + DEVICE_ID + "\",\"environment\":\"LIVE\","
+                + "\"source\":\"MANUAL_API\",\"runStatus\":\"" + status + "\",\"reason\":null,"
+                + "\"businessDate\":\"2026-11-03\",\"commandId\":null,\"commandStatus\":null,\"deliveryPath\":null,"
+                + "\"resultState\":null,\"attemptCount\":0,\"nextAttemptAt\":null,\"windowEndsAt\":null,"
+                + "\"resultLineCount\":0,\"completedAt\":null,\"createdAt\":\"2026-11-03T18:00:00.000Z\","
+                + "\"updatedAt\":\"2026-11-03T18:00:00.000Z\"}";
+    }
+
+    @Test
+    void mealCardPaymentSendsInteractionAndProviderRow() {
+        transport.enqueue(202, "{\"data\":{\"payment\":" + payment("NOT_STARTED") + ",\"replayed\":false},"
+                + "\"statusCode\":202}");
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("operation", "SALE");
+        request.put("target", Map.of("deviceId", DEVICE_ID));
+        request.put("amountMinor", "4500");
+        request.put("currency", "TRY");
+        request.put("instrument", "MEAL_CARD");
+        request.put("interaction", "CODE_DISPLAY");
+        request.put("terminalProviderId", TERMINAL_PROVIDER_ID);
+        pos.createPayment(request, KEY);
+        Map<String, Object> body = Json.parseObject(transport.onlyApiCall().body);
+        assertEquals("MEAL_CARD", body.get("instrument"));
+        assertEquals("CODE_DISPLAY", body.get("interaction"));
+        assertEquals(TERMINAL_PROVIDER_ID, body.get("terminalProviderId"));
+
+        Map<String, Object> badType = new LinkedHashMap<>(request);
+        badType.put("interaction", 7);
+        assertThrows(ConfigurationException.class, () -> pos.createPayment(badType, KEY));
+        Map<String, Object> unknown = new LinkedHashMap<>(request);
+        unknown.put("providerCode", "METROPOL");
+        assertThrows(ConfigurationException.class, () -> pos.createPayment(unknown, KEY));
+        assertEquals(1, transport.apiCalls().size());
+    }
+
+    @Test
+    void startSettlementSendsAnEmptyBodyWithAKeyAndReads202Or200() {
+        transport.enqueue(202, "{\"data\":{\"run\":" + run("STARTED") + ",\"replayed\":false}}");
+        PhysicalPosWriteResult started = pos.startSettlement(DEVICE_ID, KEY);
+        RecordingTransport.Call call = transport.onlyApiCall();
+        assertEquals("POST", call.method);
+        assertEquals(BASE + "/devices/" + DEVICE_ID + "/settlement", call.url);
+        assertEquals("{}", call.body);
+        assertEquals(KEY, call.headers.get("Idempotency-Key"));
+        assertNotNull(call.headers.get(CanonicalRequest.HEADER_SIGNATURE));
+        assertEquals(202, started.statusCode());
+        assertFalse(started.replayed());
+        assertEquals(RUN_ID, started.entity().get("runId"));
+        assertEquals(KEY, started.idempotencyKey());
+
+        transport.enqueue(200, "{\"data\":{\"run\":" + run("STARTED") + ",\"replayed\":true}}");
+        PhysicalPosWriteResult again = pos.startSettlement(DEVICE_ID);
+        String generated = transport.apiCalls().get(1).headers.get("Idempotency-Key");
+        assertTrue(generated.matches("[0-9a-f-]{36}"));
+        assertEquals(generated, again.idempotencyKey());
+        assertEquals(200, again.statusCode());
+        assertTrue(again.replayed());
+
+        assertThrows(ConfigurationException.class, () -> pos.startSettlement("", KEY));
+        assertThrows(ConfigurationException.class, () -> pos.startSettlement(DEVICE_ID, "short"));
+        assertEquals(2, transport.apiCalls().size());
+    }
+
+    @Test
+    void settlementRunsListIterateAndRead() {
+        transport.enqueue(200, "{\"data\":{\"items\":[" + run("PENDING") + "]},\"pageInfo\":{\"hasMore\":true,"
+                + "\"nextCursor\":\"r1\",\"totalCount\":2}}");
+        transport.enqueue(200, "{\"data\":{\"items\":[" + run("FAILED") + "]},\"pageInfo\":{\"hasMore\":false}}");
+        transport.enqueue(200, "{\"data\":{\"run\":" + run("STARTED") + "}}");
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("limit", 10);
+        filters.put("deviceId", DEVICE_ID);
+        filters.put("source", "SCHEDULED");
+        filters.put("runStatus", "FAILED");
+        filters.put("includeTotal", true);
+        List<Map<String, Object>> runs = new ArrayList<>();
+        pos.iterateSettlementRuns(filters).forEach(runs::add);
+        assertEquals(2, runs.size());
+        assertEquals("STARTED", pos.getSettlementRun(RUN_ID).get("runStatus"));
+
+        List<RecordingTransport.Call> calls = transport.apiCalls();
+        assertEquals(BASE + "/settlement-runs?limit=10&includeTotal=true&deviceId=" + DEVICE_ID
+                + "&source=SCHEDULED&runStatus=FAILED", calls.get(0).url);
+        assertTrue(calls.get(1).url.contains("cursor=r1"));
+        assertEquals(BASE + "/settlement-runs/" + RUN_ID, calls.get(2).url);
+        for (RecordingTransport.Call call : calls) {
+            assertEquals("GET", call.method);
+            assertEquals(null, call.headers.get("Idempotency-Key"));
+        }
+        assertThrows(ConfigurationException.class, () -> pos.listSettlementRuns(Map.of("lineStatus", "MATCHED")));
+        assertThrows(ConfigurationException.class, () -> pos.getSettlementRun(".."));
+    }
+
     // ── Webhooks ─────────────────────────────────────────────────────────────────────────────────────────────
 
     static final String SECRET = "whsec_physical_pos_fixture";
@@ -487,6 +584,46 @@ class PhysicalPosClientTest {
         // The verifier's own result type is accepted too (it cannot be built outside the verifier).
         WebhookEvent verified = client.webhooks().verify(body, headers, SECRET);
         assertEquals("evt_1", PhysicalPosClient.parseWebhookEvent(verified).id());
+        assertTrue(event.cashier().isEmpty(), "no cashier session: the key is absent");
+        assertFalse(event.isSettlementEvent());
+    }
+
+    @Test
+    void aPaymentEventFromACashierSessionCarriesTheCashier() throws Exception {
+        String body = "{\"id\":\"evt_c1\",\"type\":\"physical_pos.payment.approved\",\"data\":{\"paymentId\":\""
+                + PAYMENT_ID + "\",\"paymentStatus\":\"APPROVED\",\"amountMinor\":\"4500\",\"historySeq\":2,"
+                + "\"cashier\":{\"cashierId\":\"cashier_1\",\"cashierCode\":\"K01\"}}}";
+        PhysicalPosWebhookEvent event = PhysicalPosClient.parseWebhookEvent(body,
+                signedHeaders("evt_c1", PhysicalPosEvents.PAYMENT_APPROVED, body), SECRET);
+        assertEquals(Map.of("cashierId", "cashier_1", "cashierCode", "K01"), event.cashier().orElseThrow());
+    }
+
+    @Test
+    void endOfDayEventsAreReadAsSettlement() throws Exception {
+        String totals = "{\"saleCount\":42,\"saleMinor\":\"1284050\",\"refundCount\":1,\"refundMinor\":\"15000\","
+                + "\"voidCount\":0,\"voidMinor\":\"0\"}";
+        String body = "{\"id\":\"evt_s1\",\"type\":\"physical_pos.settlement.completed\",\"data\":{"
+                + "\"settlementId\":\"set_1\",\"runId\":\"run_1\",\"deviceId\":\"" + DEVICE_ID + "\","
+                + "\"source\":\"MANUAL_API\",\"late\":false,\"periodFrom\":\"2026-11-02T20:31:12.004Z\","
+                + "\"periodTo\":\"2026-11-03T20:15:40.220Z\",\"deviceClosedAt\":null,"
+                + "\"recordedAt\":\"2026-11-03T20:15:41.307Z\",\"lineCount\":1,\"mismatchedLineCount\":0,"
+                + "\"unmappedLineCount\":0,\"lines\":[{\"lineNo\":1,\"acquirerCode\":\"BANK1\",\"currency\":\"TRY\","
+                + "\"lineStatus\":\"MATCHED\",\"reported\":" + totals + ",\"system\":" + totals + "}]}}";
+        PhysicalPosWebhookEvent completed = PhysicalPosClient.parseWebhookEvent(body,
+                signedHeaders("evt_s1", PhysicalPosEvents.SETTLEMENT_COMPLETED, body), SECRET);
+        assertEquals(PhysicalPosWebhookEvent.CATEGORY_SETTLEMENT, completed.category());
+        assertTrue(completed.isSettlementEvent());
+        assertTrue(completed.historySeq().isEmpty());
+        assertTrue(completed.cashier().isEmpty());
+        assertTrue(PhysicalPosEvents.SETTLEMENT.contains(completed.type()));
+
+        String skipped = "{\"id\":\"evt_s2\",\"type\":\"physical_pos.settlement.skipped\",\"data\":{"
+                + "\"runId\":\"run_2\",\"deviceId\":\"" + DEVICE_ID + "\",\"businessDate\":\"2026-11-03\","
+                + "\"reason\":\"SETTLEMENT_UNSUPPORTED\",\"skippedAt\":\"2026-11-03T20:30:01.220Z\"}}";
+        PhysicalPosWebhookEvent skip = PhysicalPosClient.parseWebhookEvent(skipped,
+                signedHeaders("evt_s2", PhysicalPosEvents.SETTLEMENT_SKIPPED, skipped), SECRET);
+        assertEquals("SETTLEMENT_UNSUPPORTED", skip.data().get("reason"));
+        assertEquals(17, PhysicalPosEvents.ALL.size());
     }
 
     @Test

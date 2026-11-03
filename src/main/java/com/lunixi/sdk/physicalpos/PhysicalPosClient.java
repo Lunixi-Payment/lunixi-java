@@ -17,8 +17,14 @@ import com.lunixi.sdk.webhook.WebhookEvent;
 import com.lunixi.sdk.webhook.WebhookVerifier;
 
 /**
- * Physical POS payments — start a card payment on one of your devices, reverse or cancel it, and read payments,
- * transaction trees, reports and end-of-day results ({@code /api/v1/physical-pos}, product {@code PHYSICAL_POS}).
+ * Physical POS payments — start a card payment on one of your devices, reverse or cancel it, start end-of-day, and
+ * read payments, transaction trees, reports, end-of-day runs and results ({@code /api/v1/physical-pos}, product
+ * {@code PHYSICAL_POS}).
+ *
+ * <p>{@code instrument} is {@code CARD} by default; a provider-collected card such as {@code MEAL_CARD} also sends
+ * {@code interaction} ({@code INSTRUMENT_READ} — the device reads the card, {@code CODE_DISPLAY} — the device shows
+ * the provider's QR / short code) and, when the terminal has several provider rows, {@code terminalProviderId} (a
+ * row id from {@link PhysicalPosManagementClient#listTerminalProviders}). Leave both out for {@code CARD}.
  *
  * <p>Every call is signed. The key decides the environment; a TEST key reads only and is answered
  * {@code 403 physical_pos.environment.test_key_read_only} on every write. Writes need the key scope
@@ -101,7 +107,9 @@ public final class PhysicalPosClient {
             .bool("allowDuplicateReference")
             .integer("startTimeoutSeconds", false, true, -SAFE, SAFE)
             .text("terminalAcquirerId", false, true)
-            .objectList("items", SALE_ITEM);
+            .objectList("items", SALE_ITEM)
+            .text("interaction", false, true)
+            .text("terminalProviderId", false, true);
 
     static final Shape REVERSAL = new Shape("createReversal request")
             .text("operation", true, false)
@@ -125,6 +133,8 @@ public final class PhysicalPosClient {
             "dateFrom", "dateTo", "deviceId", "storeId");
     static final List<String> SETTLEMENT_FILTERS = PhysicalPosSupport.list(
             "limit", "cursor", "deviceId", "lineStatus", "createdFrom", "createdTo");
+    static final List<String> SETTLEMENT_RUN_FILTERS = PhysicalPosSupport.list(
+            "limit", "cursor", "includeTotal", "deviceId", "source", "runStatus", "createdFrom", "createdTo");
 
     private final ApiClient api;
 
@@ -332,6 +342,68 @@ public final class PhysicalPosClient {
         return PhysicalPosSupport.iterate(filters, this::listSettlements);
     }
 
+    /**
+     * Starts end-of-day (batch close) on a device ({@code POST /devices/{deviceId}/settlement},
+     * {@code physical_pos:payments}; empty body). End-of-day cannot be undone. The answer means "accepted": the device
+     * reports the result later — follow it with {@link #getSettlementRun} or {@link #listSettlements}. A TEST key is
+     * {@code 403 physical_pos.environment.test_key_read_only}.
+     *
+     * @param deviceId       the device
+     * @param idempotencyKey your key, or {@code null} for a generated UUID; after an unknown outcome call again with
+     *                       the same key
+     * @return {@code run} (via {@link PhysicalPosWriteResult#entity()}), {@code replayed}, status 202 new / 200 replay,
+     *         the key
+     */
+    public PhysicalPosWriteResult startSettlement(String deviceId, String idempotencyKey) {
+        String path = BASE + "/devices/" + PhysicalPosSupport.segment(deviceId, "deviceId") + "/settlement";
+        String key = PhysicalPosSupport.idempotencyKey(idempotencyKey);
+        RequestOptions options = RequestOptions.builder().stepUp(true).idempotencyKey(key).build();
+        Map<String, Object> envelope = PhysicalPosSupport.send(api, "POST", path, Map.of(), options, key);
+        Map<String, Object> data = PhysicalPosSupport.data(envelope);
+        boolean replayed = Boolean.TRUE.equals(data.get("replayed"));
+        int status = PhysicalPosSupport.statusCode(envelope, replayed ? 200 : 202);
+        return new PhysicalPosWriteResult("run", data, status, key);
+    }
+
+    /** {@link #startSettlement(String, String)} with a generated key. */
+    public PhysicalPosWriteResult startSettlement(String deviceId) {
+        return startSettlement(deviceId, null);
+    }
+
+    /**
+     * End-of-day runs started by Lunixi (manual and scheduled), newest first ({@code GET /settlement-runs}). Filters:
+     * {@code limit}, {@code cursor}, {@code includeTotal}, {@code deviceId}, {@code source} ({@code MANUAL_API} |
+     * {@code MANUAL_PANEL} | {@code SCHEDULED}), {@code runStatus} ({@code PENDING} | {@code STARTED} |
+     * {@code SKIPPED} | {@code FAILED}), {@code createdFrom}, {@code createdTo} (run creation time).
+     *
+     * <p>Each run: {@code runId}, {@code deviceId}, {@code environment}, {@code source}, {@code runStatus},
+     * {@code reason}, {@code businessDate}, {@code commandId}, {@code commandStatus}, {@code deliveryPath},
+     * {@code resultState}, {@code attemptCount}, {@code nextAttemptAt}, {@code windowEndsAt},
+     * {@code resultLineCount}, {@code completedAt}, {@code createdAt}, {@code updatedAt}.
+     *
+     * @param filters the filters, or {@code null}
+     * @return one page of runs
+     */
+    public PhysicalPosPage listSettlementRuns(Map<String, ?> filters) {
+        return page(BASE + "/settlement-runs", filters, SETTLEMENT_RUN_FILTERS, "listSettlementRuns");
+    }
+
+    /** @return every end-of-day run matching the filters, page by page */
+    public Iterable<Map<String, Object>> iterateSettlementRuns(Map<String, ?> filters) {
+        return PhysicalPosSupport.iterate(filters, this::listSettlementRuns);
+    }
+
+    /**
+     * Reads one end-of-day run with its command status and result state ({@code GET /settlement-runs/{runId}}).
+     *
+     * @param runId the run
+     * @return the run
+     */
+    public Map<String, Object> getSettlementRun(String runId) {
+        String path = BASE + "/settlement-runs/" + PhysicalPosSupport.segment(runId, "runId");
+        return entity(read(path, RequestOptions.builder().stepUp(true)), "run");
+    }
+
     // ── Webhooks ─────────────────────────────────────────────────────────────────────────────────────────────
 
     /**
@@ -395,9 +467,7 @@ public final class PhysicalPosClient {
         }
         Map<String, Object> data = payload(envelope);
         PhysicalPosMoney.validate(data);
-        String category = type.startsWith("physical_pos.payment.") ? PhysicalPosWebhookEvent.CATEGORY_PAYMENT
-                : type.startsWith("physical_pos.fiscal_document.") ? PhysicalPosWebhookEvent.CATEGORY_FISCAL_DOCUMENT
-                : PhysicalPosWebhookEvent.CATEGORY_OTHER;
+        String category = PhysicalPosSupport.webhookCategory(type);
         Object seq = data.get("historySeq");
         Long historySeq = seq instanceof Number number ? Long.valueOf(number.longValue()) : null;
         return new PhysicalPosWebhookEvent(id, type, category, firstText(envelope.get("environment"), null, null),

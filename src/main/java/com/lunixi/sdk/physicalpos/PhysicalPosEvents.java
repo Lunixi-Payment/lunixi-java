@@ -15,6 +15,9 @@ import java.util.List;
  * <p>{@link #PAYMENT_DEVICE_SALE} reports a sale made directly on the device ({@code origin: DEVICE_DIRECT}): it
  * arrives approved with {@code deviceOccurredAt}; no {@code approved} event is sent for it. Its refund comes with
  * the usual payment events ({@code original.origin = DEVICE_DIRECT}).
+ *
+ * <p>End-of-day events ({@code SETTLEMENT_*}) have their own payloads and no {@code historySeq}; deduplicate them on
+ * the event id.
  */
 public final class PhysicalPosEvents {
 
@@ -45,6 +48,15 @@ public final class PhysicalPosEvents {
     /** A fiscal document needs an action in the panel. */
     public static final String FISCAL_DOCUMENT_ACTION_REQUIRED = "physical_pos.fiscal_document.action_required";
 
+    /** The device's end-of-day result was recorded (manual, scheduled or started on the device). */
+    public static final String SETTLEMENT_COMPLETED = "physical_pos.settlement.completed";
+    /** A scheduled end-of-day could not finish within its window. */
+    public static final String SETTLEMENT_FAILED = "physical_pos.settlement.failed";
+    /** No end-of-day result within the policy's {@code overdueAlertHours}. */
+    public static final String SETTLEMENT_OVERDUE = "physical_pos.settlement.overdue";
+    /** A scheduled end-of-day was skipped (the device cannot take it from the server, or is not active). */
+    public static final String SETTLEMENT_SKIPPED = "physical_pos.settlement.skipped";
+
     /** Subscription pattern covering every physical POS event. */
     public static final String PATTERN = "physical_pos.*";
 
@@ -53,7 +65,12 @@ public final class PhysicalPosEvents {
             PAYMENT_APPROVED, PAYMENT_PARTIALLY_APPROVED, PAYMENT_DECLINED, PAYMENT_CANCELLED, PAYMENT_EXPIRED,
             PAYMENT_FAILED, PAYMENT_UNKNOWN, PAYMENT_MANUAL_REVIEW, PAYMENT_DEVICE_SALE, FISCAL_DOCUMENT_ISSUED,
             FISCAL_DOCUMENT_FAILED,
-            FISCAL_DOCUMENT_CANCELLED, FISCAL_DOCUMENT_ACTION_REQUIRED);
+            FISCAL_DOCUMENT_CANCELLED, FISCAL_DOCUMENT_ACTION_REQUIRED, SETTLEMENT_COMPLETED, SETTLEMENT_FAILED,
+            SETTLEMENT_OVERDUE, SETTLEMENT_SKIPPED);
+
+    /** The end-of-day event types. */
+    public static final List<String> SETTLEMENT = List.of(
+            SETTLEMENT_COMPLETED, SETTLEMENT_FAILED, SETTLEMENT_OVERDUE, SETTLEMENT_SKIPPED);
 
     private PhysicalPosEvents() {
     }
