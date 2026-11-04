@@ -59,6 +59,18 @@ For a native JDBC ledger, auto-configuration and a runnable MVC application use 
 
 Merchant-site embedding is the default and uses the original `checkout.token()` with the official browser bundle. Optional `checkout.hostedUrl()` returns the exact validated backend `paymentPageUrl`, never a URL rebuilt from the embedded token. Enabled methods, meal cards, shopping credit, installments, insurance and multi-card options remain configured in the Lunixi merchant panel/form. Browser tokens are disclosed only after native session/customer/order ownership and CSRF checks. Provider browser POST returns are informational 303 hops into an owned GET; browser fields never mark paid.
 
+`createIntent` takes the gateway body as a map. The optional `enabledInstallments` list narrows the installment counts the form offers for one payment; the form shows only the counts your panel settings, the card and the platform maximum also allow. Leave it out for no restriction; `List.of(1)` allows a single payment only. Send distinct integers 1–36 that include 1, in ascending order; the gateway rejects any other list (an empty list included) with 400.
+
+```java
+Map<String, Object> request = new LinkedHashMap<>();
+request.put("amount", "10050");
+request.put("currency", "TRY");
+request.put("orderId", order.number());
+request.put("callbackUrl", "https://merchant.example/payments/return");
+request.put("enabledInstallments", List.of(1, 2, 3)); // optional: at most 3 installments
+CheckoutSession checkout = client.payments().createIntent(request, persistedAttemptKey);
+```
+
 ## Fraud and errors
 
 Use `client.fraud().evaluate(EvaluateRequest.create()...)` to screen your own events; read `client.fraud().decisions().latestForPayment(paymentId)` for an existing Lunixi payment. `events().recordBatch(events)` accepts up to 500 events; inspect per-item failures even on HTTP 200. Cursors are opaque. See [Fraud documentation](https://docs.lunixi.com/fraud/overview).

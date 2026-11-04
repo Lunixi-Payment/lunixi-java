@@ -85,6 +85,18 @@ Yerel JDBC deposu, otomatik yapılandırma ve çalışan MVC uygulaması için [
 
 Varsayılan gömülü akış mağazanın kendi sayfasında resmî Lunixi tarayıcı paketi ve `checkout.token()` ile açılır. İsteğe bağlı `checkout.hostedUrl()`, backend `paymentPageUrl` değerini aynen döndürür; gömülü token’dan adres üretilmez. Açık ödeme yöntemleri, yemek kartı, alışveriş kredisi, taksit, sigorta ve çoklu kart Lunixi paneli/formundan yönetilir. Token yalnız yerel oturum/müşteri/sipariş sahipliği ve CSRF kontrolü sonrasında döner. Sağlayıcının tarayıcı POST dönüşü bilgilendirici 303 ile sahiplik kontrolü olan GET'e geçer; başarı alanı ödeme kanıtı değildir.
 
+`createIntent` gateway gövdesini map olarak alır. İsteğe bağlı `enabledInstallments` listesi, bir ödeme için formun sunacağı taksit sayılarını yalnızca daraltır; form, panel ayarlarınızın, kartın ve platform üst sınırının da izin verdiği sayıları gösterir. Kısıt istemiyorsanız alanı göndermeyin; `List.of(1)` yalnız tek çekime izin verir. 1–36 arası, tekrarsız ve 1'i içeren tamsayıları artan sırada gönderin; gateway başka bir listeyi (boş liste dahil) 400 ile reddeder.
+
+```java
+Map<String, Object> request = new LinkedHashMap<>();
+request.put("amount", "10050");
+request.put("currency", "TRY");
+request.put("orderId", order.number());
+request.put("callbackUrl", "https://merchant.example/payments/return");
+request.put("enabledInstallments", List.of(1, 2, 3)); // isteğe bağlı: en fazla 3 taksit
+CheckoutSession checkout = client.payments().createIntent(request, persistedAttemptKey);
+```
+
 ## Fraud ve hatalar
 
 Kendi olaylarınız için `client.fraud().evaluate(...)`, mevcut Lunixi ödemesi için `decisions().latestForPayment(paymentId)` kullanın. Toplu olay kaydı 500 olayla sınırlıdır; HTTP 200 olsa da öğe hatalarını okuyun. İmleci değiştirmeden geri gönderin. [Fraud rehberi](https://docs.lunixi.com/tr/fraud/overview).

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0 — 2026-11-04
+
+- Document the optional `enabledInstallments` field of the `createIntent()` body: the installment counts the hosted form may offer for one payment (`List.of(1)` = single payment only). It only narrows the panel settings, the card and the platform maximum; leaving it out means no restriction. The body map is sent unchanged; send distinct integers 1–36 that include 1, in ascending order (the gateway answers any other list with 400).
+
 ## 1.2.0 — 2026-11-03
 
 - Physical POS end-of-day webhooks: `PhysicalPosEvents.SETTLEMENT_COMPLETED`, `SETTLEMENT_FAILED`, `SETTLEMENT_OVERDUE`, `SETTLEMENT_SKIPPED` (also `SETTLEMENT`, and in `ALL`); `PhysicalPosWebhookEvent` reads them with `CATEGORY_SETTLEMENT` / `isSettlementEvent()`; they carry no `historySeq`.

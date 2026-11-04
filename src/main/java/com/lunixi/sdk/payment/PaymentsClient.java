@@ -14,6 +14,20 @@ public final class PaymentsClient {
     private static final String BASE = "/api/v1/payments";
     private final ApiClient api;
     public PaymentsClient(ApiClient api) { this.api = api; }
+    /**
+     * Creates a checkout intent ({@code POST /api/v1/payments/intents}) from the gateway body.
+     *
+     * <p>Optional {@code enabledInstallments} ({@code List<Integer>}) lists the installment counts the hosted form
+     * may offer for this payment, for example {@code List.of(1, 2, 3)}; {@code List.of(1)} allows a single payment
+     * only. The form shows only the counts also allowed by the panel settings, the card and the platform maximum.
+     * Leave it out for no restriction. Send distinct integers 1–36 that include 1, in ascending order; the gateway
+     * rejects any other list, an empty one included, with 400.
+     *
+     * @param request gateway body: {@code amount} (canonical minor-unit string), {@code currency}, {@code orderId}
+     *     and optional fields such as {@code callbackUrl} and {@code enabledInstallments}
+     * @param idempotencyKey the persisted key of this checkout attempt
+     * @return the checkout session with the payment id, token and optional payment page URL
+     */
     public CheckoutSession createIntent(Map<String, Object> request, String idempotencyKey) {
         if (request != null && (request.containsKey("price") || request.containsKey("paidPrice"))) { throw new IllegalArgumentException("Removed top-level amount field; use integer minor-unit amount."); }
         if (request == null || Money.integer(request.get("amount")) < 1 || !(request.get("orderId") instanceof String order) || order.isBlank() || !(request.get("currency") instanceof String currency)) { throw new IllegalArgumentException("Server order, positive amount and currency are required."); }
