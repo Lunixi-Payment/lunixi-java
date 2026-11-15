@@ -16,6 +16,25 @@
   <Match><Class name="com.lunixi.sdk.fraud.FraudEventResult"/><Method name="raw"/><Bug pattern="EI_EXPOSE_REP"/></Match>
   <Match><Class name="com.lunixi.sdk.webhook.WebhookEvent"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
   <Match><Class name="com.lunixi.sdk.webhook.WebhookEvent"/><Method name="envelope"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <!-- Stateless service facades: each holds only the final shared ApiClient (and its route
+       table) and sends HTTP requests. Method names such as setJurisdiction, setDefault,
+       setCollectionAnchor or add trigger SpotBugs' mutable-object heuristic; returning the
+       same facade keeps the shared signing transport and token cache. -->
+  <Match><Class name="com.lunixi.sdk.LunixiClient"/><Or><Method name="kyc"/><Method name="marketplace"/><Method name="paymentLinks"/><Method name="subscriptions"/></Or><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.subscription.SubscriptionsClient"/><Or><Method name="cards"/><Method name="features"/></Or><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.wallet.WalletClient"/><Method name="programs"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <!-- These getters return deep-unmodifiable copies: webhook data from WebhookPayloads.read
+       (ResponseMaps.immutableCopy), page rows from Collections.unmodifiableList over
+       ResponseMaps.immutableCopy rows. SpotBugs cannot infer the helper contract. -->
+  <Match><Class name="com.lunixi.sdk.bankconnect.BankAccountTransactionReceived"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.bankconnect.BankTransferWebhookData"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.insurance.InsuranceWebhookData"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.insurance.InsuranceLeadWebhookData"/><Method name="data"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.http.RoutePage"/><Method name="items"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <Match><Class name="com.lunixi.sdk.wallet.WalletPage"/><Method name="items"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <!-- RouteRequest keeps the product's static, unmodifiable route table (Map.of / Collections
+       .unmodifiableMap in *Routes); the invoker never mutates it. -->
+  <Match><Class name="com.lunixi.sdk.internal.RouteRequest"/><Method name="&lt;init&gt;"/><Bug pattern="EI_EXPOSE_REP2"/></Match>
   <!-- RequestOptions constructor defensively copies and wraps the LinkedHashMap;
        insertion order is retained for signed queries. Proven by public mutation test. -->
   <Match><Class name="com.lunixi.sdk.internal.RequestOptions"/><Method name="query"/><Bug pattern="EI_EXPOSE_REP"/></Match>

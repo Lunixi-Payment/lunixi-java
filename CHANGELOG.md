@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1 — 2026-11-15
+
+- Static-analysis (SpotBugs) configuration for the 1.5.0 clients; no behaviour change.
+
 ## 1.5.0 — 2026-11-15
 
 - Payment methods on `client.payments()`: `listPaymentMethods()` / `listPaymentMethods(String paymentMethod)` (`GET /payments/methods`, signed; the code is checked locally and `QR` is sent as `QR_CODE`), `directMethodPayment(DirectMethodPaymentRequest | Map, idempotencyKey)` (`POST /payments/direct/payment`, signed; a persisted 16–128 ASCII-character `Idempotency-Key` is required), `confirmPaymentAction(paymentId, actionId, Map)` (only `otp` as digits, `consentAccepted`, `fields`) and `resendPaymentAction(paymentId, actionId)` (`POST /payments/{id}/actions/{actionId}/confirm|resend`, signed). Read provider codes from `listPaymentMethods()`; never fix them in code.
