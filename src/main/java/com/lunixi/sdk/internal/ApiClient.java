@@ -16,6 +16,7 @@ import com.lunixi.sdk.exception.ServiceUnavailableException;
 import com.lunixi.sdk.exception.ValidationException;
 import com.lunixi.sdk.http.Envelope;
 import com.lunixi.sdk.http.HttpResult;
+import com.lunixi.sdk.http.HttpTransport;
 import com.lunixi.sdk.json.Json;
 
 /**
@@ -105,8 +106,6 @@ public final class ApiClient {
     public Exchange exchange(String method, String path, Object body, RequestOptions options) {
         RequestOptions effective = options == null ? RequestOptions.none() : options;
         String upperMethod = method.toUpperCase(java.util.Locale.ROOT);
-        String signedPath = path + queryString(effective.query());
-        String url = config.baseUrl() + signedPath;
 
         // Serialised ONCE. The same bytes are hashed for the Digest header and
         // sent as the body; serialising twice would risk the two drifting apart,
@@ -117,17 +116,98 @@ public final class ApiClient {
         if (fiatRoute) { com.lunixi.sdk.payment.Money.validateFields(body, false); }
         String rawBody = body == null ? null : Json.stringify(body);
 
+        HttpResult response = transmit(upperMethod, path, rawBody, effective, JSON_CONTENT_TYPE, false);
+        Map<String, Object> envelope = response.json();
+        // A 2xx envelope can still report a failure; see Envelope.
+        if (Envelope.isFailure(envelope)) {
+            throw toException(response, envelope);
+        }
+        if (fiatRoute) { com.lunixi.sdk.payment.Money.validateFields(envelope, true); }
+        return new Exchange(response.statusCode(), envelope);
+    }
+
+    /**
+     * The HTTP status, {@code Content-Type} and raw body of a successful ({@code 2xx}) binary download.
+     *
+     * @param statusCode  the HTTP status the gateway answered with
+     * @param contentType the {@code Content-Type} header, or {@code null}
+     * @param bytes       the body bytes (copied on the way in and out)
+     */
+    public record Binary(int statusCode, String contentType, byte[] bytes) {
+        public Binary {
+            bytes = bytes == null ? new byte[0] : bytes.clone();
+        }
+
+        @Override
+        public byte[] bytes() {
+            return bytes.clone();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Binary that && statusCode == that.statusCode
+                    && java.util.Objects.equals(contentType, that.contentType)
+                    && java.util.Arrays.equals(bytes, that.bytes);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * java.util.Objects.hash(statusCode, contentType) + java.util.Arrays.hashCode(bytes);
+        }
+
+        @Override
+        public String toString() {
+            return "Binary[statusCode=" + statusCode + ", contentType=" + contentType + ", bytes=" + bytes.length
+                    + "]";
+        }
+    }
+
+    /**
+     * Sends a bodyless request whose successful answer is a file (a PDF, for instance) and returns its raw bytes.
+     * Signing, the {@code 401} re-authentication and the retry policy are the same as for
+     * {@link #request(String, String, Object, RequestOptions)}; an error answer is read as a JSON envelope and
+     * thrown as the matching exception. The body goes through {@link HttpTransport#sendBinary}.
+     *
+     * @param method  HTTP method
+     * @param path    the path, beginning with {@code /}; signed exactly as sent
+     * @param accept  the {@code Accept} header (not signed), e.g. {@code "application/pdf, application/json"}
+     * @param options per-call options
+     * @return the status, content type and bytes of the answer
+     * @throws LunixiApiException when the gateway reports an error
+     */
+    public Binary requestBinary(String method, String path, String accept, RequestOptions options) {
+        RequestOptions effective = options == null ? RequestOptions.none() : options;
+        String upperMethod = method.toUpperCase(java.util.Locale.ROOT);
+        HttpResult response = transmit(upperMethod, path, null, effective,
+                accept == null || accept.isBlank() ? JSON_CONTENT_TYPE : accept, true);
+        String contentType = response.header("content-type").orElse(null);
+        if (contentType != null && contentType.toLowerCase(java.util.Locale.ROOT).startsWith(JSON_CONTENT_TYPE)) {
+            Map<String, Object> envelope = response.json();
+            if (Envelope.isFailure(envelope)) {
+                throw toException(response, envelope);
+            }
+        }
+        return new Binary(response.statusCode(), contentType, response.bytes());
+    }
+
+    /** Sends with the retry policy and returns the {@code 2xx} answer; any other answer is thrown. */
+    private HttpResult transmit(String upperMethod, String path, String rawBody, RequestOptions effective,
+                                String accept, boolean binary) {
+        String signedPath = path + queryString(effective.query());
+        String url = config.baseUrl() + signedPath;
         boolean idempotent = effective.retry() && ("GET".equals(upperMethod) || "HEAD".equals(upperMethod)
                 || effective.idempotencyKey() != null);
         int maxAttempts = config.maxRetries() + 1;
         boolean reAuthenticated = false;
 
         for (int attempt = 1; ; attempt++) {
-            Map<String, String> headers = buildHeaders(upperMethod, signedPath, rawBody, effective);
+            Map<String, String> headers = buildHeaders(upperMethod, signedPath, rawBody, effective, accept);
 
             HttpResult response;
             try {
-                response = config.transport().send(upperMethod, url, headers, rawBody, config.timeout());
+                response = binary
+                        ? config.transport().sendBinary(upperMethod, url, headers, rawBody, config.timeout())
+                        : config.transport().send(upperMethod, url, headers, rawBody, config.timeout());
             } catch (LunixiApiException transportFailure) {
                 if (idempotent && attempt < maxAttempts) {
                     backoff(attempt);
@@ -137,13 +217,7 @@ public final class ApiClient {
             }
 
             if (response.isHttpSuccess()) {
-                Map<String, Object> envelope = response.json();
-                // A 2xx envelope can still report a failure; see Envelope.
-                if (Envelope.isFailure(envelope)) {
-                    throw toException(response, envelope);
-                }
-                if (fiatRoute) { com.lunixi.sdk.payment.Money.validateFields(envelope, true); }
-                return new Exchange(response.statusCode(), envelope);
+                return response;
             }
 
             if (response.statusCode() == 401 && !reAuthenticated) {
@@ -162,9 +236,9 @@ public final class ApiClient {
     }
 
     private Map<String, String> buildHeaders(String method, String signedPath, String rawBody,
-                                             RequestOptions options) {
+                                             RequestOptions options, String accept) {
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Accept", JSON_CONTENT_TYPE);
+        headers.put("Accept", accept);
         headers.put("User-Agent", config.userAgent());
         headers.put("Authorization", "Bearer " + tokens.getToken());
         if (rawBody != null) {

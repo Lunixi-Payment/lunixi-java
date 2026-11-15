@@ -1,0 +1,428 @@
+# Manual publication to Maven Central (Central Portal API). Dispatch from the matching
+# vVERSION tag. Gradle builds the existing unsigned centralBundle layout in a job with no
+# secrets; the release job signs it with the pinned GPG key using gpg directly (no build
+# code runs while the key is unlocked), then uploads it with publishingType=AUTOMATIC.
+name: Publish Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing tested version without v; select its matching vVERSION tag above
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-lunixi-java-sdk
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GROUP_ID: com.lunixi
+  ARTIFACT_ID: lunixi-java-sdk
+  PUBLIC_REPOSITORY: Lunixi-Payment/lunixi-java
+
+jobs:
+  bundle:
+    if: github.repository == 'Lunixi-Payment/lunixi-java'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      VERSION: ${{ inputs.version }}
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      version: ${{ steps.source.outputs.version }}
+      sha256: ${{ steps.bundle.outputs.sha256 }}
+    steps:
+      - name: Resolve exact public tag and require successful CI on that commit
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, urllib.parse, urllib.request
+          version = os.environ['VERSION']
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Invalid numeric version'
+          repo, tag = os.environ['PUBLIC_REPOSITORY'], 'v' + version
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_REF'] == 'refs/tags/' + tag, 'Dispatch from the matching release tag, not main'
+          def api(path):
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read(4 * 1024 * 1024 + 1)
+              assert len(body) <= 4 * 1024 * 1024, 'Public source metadata exceeds the release gate limit'
+              return json.loads(body)
+          obj = api('git/ref/tags/' + tag)['object']
+          for _ in range(4):
+              assert re.fullmatch(r'[0-9a-f]{40}', obj['sha'])
+              if obj['type'] == 'commit':
+                  break
+              assert obj['type'] == 'tag', 'Tag does not identify a commit'
+              obj = api('git/tags/' + obj['sha'])['object']
+          sha = obj['sha']
+          assert obj['type'] == 'commit' and re.fullmatch(r'[0-9a-f]{40}', sha)
+          assert sha == os.environ['GITHUB_SHA'], 'Tag moved or invocation source differs'
+          runs = api('actions/workflows/ci.yml/runs?' + urllib.parse.urlencode({'head_sha': sha, 'event': 'push', 'per_page': 20}))
+          assert any(run.get('head_sha') == sha and run.get('event') == 'push'
+                     and run.get('status') == 'completed' and run.get('conclusion') == 'success'
+                     and (run.get('head_repository') or {}).get('full_name') == repo
+                     for run in runs['workflow_runs']), 'Successful push CI required for the exact release commit'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('source_sha=' + sha + '\nversion=' + version + '\n')
+          print('Exact release invocation, immutable public source and successful CI verified.')
+          PY
+      - name: Refuse an existing registry version
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --max-time 20 --max-filesize 1048576 \
+            --proto '=https' --output /dev/null --write-out '%{http_code}' \
+            "https://repo1.maven.org/maven2/com/lunixi/${ARTIFACT_ID}/${VERSION}/${ARTIFACT_ID}-${VERSION}.pom")"
+          case "$status" in
+            404) ;;
+            200) echo 'This registry version already exists; refusing replacement.' >&2; exit 1 ;;
+            *) echo "Registry preflight failed with HTTP $status" >&2; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          gradle-version: '9.7.1'
+          cache-disabled: true
+      - name: Build the existing centralBundle layout without signing material
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 - <<'PY'
+          import os, pathlib
+          properties = dict(line.split('=', 1) for line in pathlib.Path('gradle.properties').read_text().splitlines()
+                            if '=' in line and not line.startswith('#'))
+          assert properties['lunixiGroupId'] == os.environ['GROUP_ID'], 'Wrong Maven group'
+          assert properties['lunixiArtifactId'] == os.environ['ARTIFACT_ID'], 'Wrong Maven artifact'
+          assert properties['lunixiVersion'] == os.environ['VERSION'], 'Tag and gradle.properties version differ'
+          PY
+          # Signatures are added by the release job; -PlunixiUnsigned only skips Gradle signing.
+          gradle --no-daemon clean centralBundle -PlunixiUnsigned --console=plain
+          python3 tools/check-artifacts.py
+          git diff --exit-code
+      - name: Validate the exact bundle contents and record its SHA-256
+        id: bundle
+        run: |
+          set -euo pipefail
+          mkdir package
+          cp "build/central/${ARTIFACT_ID}-${VERSION}-bundle.zip" package/
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, xml.etree.ElementTree as ET, zipfile
+          group, artifact, version = os.environ['GROUP_ID'], os.environ['ARTIFACT_ID'], os.environ['VERSION']
+          repository_url = 'https://github.com/' + os.environ['PUBLIC_REPOSITORY']
+          directory = pathlib.Path('package')
+          filename = artifact + '-' + version + '-bundle.zip'
+          assert sorted(p.name for p in directory.iterdir()) == [filename], 'Unexpected package files'
+          bundle = directory / filename
+          assert bundle.is_file() and not bundle.is_symlink() and bundle.stat().st_size <= 64 * 1024 * 1024
+          prefix = group.replace('.', '/') + '/' + artifact + '/' + version + '/'
+          base = artifact + '-' + version
+          primaries = [base + '.jar', base + '-sources.jar', base + '-javadoc.jar', base + '.pom', base + '.module']
+          algorithms = {'md5': hashlib.md5, 'sha1': hashlib.sha1, 'sha256': hashlib.sha256, 'sha512': hashlib.sha512}
+          expected = {prefix + name for name in primaries} | {prefix + name + '.' + a for name in primaries for a in algorithms}
+          with zipfile.ZipFile(bundle) as archive:
+              infos = archive.infolist()
+              assert len(infos) <= 64
+              files = {i.filename for i in infos if not i.is_dir()}
+              assert all(prefix.startswith(i.filename) for i in infos if i.is_dir()), 'Unexpected directory entry'
+              assert files == expected, 'Unexpected bundle files: ' + ', '.join(sorted(files ^ expected))
+              content = {name: archive.read(name) for name in files}
+          for name in primaries:
+              data = content[prefix + name]
+              for algorithm, function in algorithms.items():
+                  recorded = content[prefix + name + '.' + algorithm].decode('ascii').strip()
+                  assert recorded == function(data).hexdigest(), name + ' ' + algorithm + ' checksum mismatch'
+          pom = ET.fromstring(content[prefix + base + '.pom'])
+          ns = {'p': 'http://maven.apache.org/POM/4.0.0'}
+          assert pom.findtext('p:groupId', namespaces=ns) == group
+          assert pom.findtext('p:artifactId', namespaces=ns) == artifact
+          assert pom.findtext('p:version', namespaces=ns) == version
+          assert pom.findtext('p:url', namespaces=ns) == repository_url
+          assert pom.findtext('p:scm/p:url', namespaces=ns) == repository_url
+          assert pom.findtext('p:name', namespaces=ns) and pom.findtext('p:description', namespaces=ns)
+          assert pom.findall('p:licenses/p:license', ns) and pom.findall('p:developers/p:developer', ns)
+          component = json.loads(content[prefix + base + '.module'])['component']
+          assert component['group'] == group and component['module'] == artifact and component['version'] == version
+          digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+          (directory / 'SHA256SUMS').write_text(digest + '  ' + filename + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('sha256=' + digest + '\n')
+          print('Validated unsigned bundle SHA-256: ' + digest)
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maven-${{ env.ARTIFACT_ID }}-${{ steps.source.outputs.version }}
+          path: package/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: bundle
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'Lunixi-Payment/lunixi-java'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: release
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.bundle.outputs.version }}
+      SOURCE_SHA: ${{ needs.bundle.outputs.source_sha }}
+      EXPECTED_SHA256: ${{ needs.bundle.outputs.sha256 }}
+      RELEASE_SIGNER_FINGERPRINT: B656B9497C30814892B8423E09092EAA675EA86B
+    steps:
+      # Deliberately no checkout and no build tool: only the verified bundle is handled.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: maven-${{ env.ARTIFACT_ID }}-${{ needs.bundle.outputs.version }}
+          path: verified
+      - name: Verify exact artifact and invocation identity
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re
+          version, source = os.environ['VERSION'], os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version)
+          assert re.fullmatch(r'[0-9a-f]{40}', source) and source == os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REPOSITORY'] == os.environ['PUBLIC_REPOSITORY']
+          assert os.environ['GITHUB_REF'] == 'refs/tags/v' + version
+          directory = pathlib.Path('verified')
+          filename = os.environ['ARTIFACT_ID'] + '-' + version + '-bundle.zip'
+          assert sorted(p.name for p in directory.iterdir()) == ['SHA256SUMS', filename]
+          assert all(p.is_file() and not p.is_symlink() for p in directory.iterdir())
+          digest = hashlib.sha256((directory / filename).read_bytes()).hexdigest()
+          assert digest == os.environ['EXPECTED_SHA256'], 'Artifact differs from the verified bundle job'
+          assert (directory / 'SHA256SUMS').read_text() == digest + '  ' + filename + '\n'
+          print('Verified unsigned bundle and exact release source confirmed.')
+          PY
+      - name: Sign every primary file with the pinned release key
+        id: sign
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, shutil, subprocess, sys, tempfile, zipfile
+
+          class SigningError(Exception):
+              pass
+
+          group, artifact, version = os.environ['GROUP_ID'], os.environ['ARTIFACT_ID'], os.environ['VERSION']
+          signer = os.environ['RELEASE_SIGNER_FINGERPRINT']
+          prefix = group.replace('.', '/') + '/' + artifact + '/' + version + '/'
+          base = artifact + '-' + version
+          primaries = [base + '.jar', base + '-sources.jar', base + '-javadoc.jar', base + '.pom', base + '.module']
+          checksums = ['md5', 'sha1', 'sha256', 'sha512']
+          expected = {prefix + n for n in primaries} | {prefix + n + '.' + c for n in primaries for c in checksums}
+          runner_temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          home = pathlib.Path(tempfile.mkdtemp(prefix='lunixi-gnupg-', dir=runner_temp))
+          work = pathlib.Path(tempfile.mkdtemp(prefix='lunixi-bundle-', dir=runner_temp))
+          # gpg gets a minimal environment: never the secrets themselves.
+          environment = {'GNUPGHOME': str(home), 'PATH': os.environ['PATH'], 'LC_ALL': 'C', 'LANG': 'C'}
+
+          def gpg(arguments, stdin=b'', passphrase=None):
+              pass_fds = ()
+              command = ['gpg', '--batch', '--no-tty', '--no-options', '--no-auto-key-locate', '--no-auto-key-retrieve']
+              if passphrase is not None:
+                  read_end, write_end = os.pipe()
+                  os.write(write_end, passphrase.encode('utf-8'))
+                  os.close(write_end)
+                  pass_fds = (read_end,)
+                  command += ['--pinentry-mode', 'loopback', '--passphrase-fd', str(read_end)]
+              try:
+                  result = subprocess.run(command + arguments, input=stdin, env=environment, pass_fds=pass_fds,
+                                          capture_output=True, timeout=120)
+              finally:
+                  for descriptor in pass_fds:
+                      os.close(descriptor)
+              if result.returncode != 0:
+                  raise SigningError('gpg ' + arguments[0] + ' failed with exit code ' + str(result.returncode))
+              return result.stdout.decode('utf-8', 'replace')
+
+          try:
+              key = os.environ.get('MAVEN_GPG_PRIVATE_KEY', '')
+              passphrase = os.environ.get('MAVEN_GPG_PASSPHRASE', '').rstrip('\r\n')
+              if 'PGP PRIVATE KEY BLOCK' not in key:
+                  raise SigningError('MAVEN_GPG_PRIVATE_KEY must be an ASCII-armored secret key export')
+              if not passphrase or '\n' in passphrase or '\r' in passphrase:
+                  raise SigningError('MAVEN_GPG_PASSPHRASE is missing or malformed')
+              gpg(['--import'], stdin=key.encode('utf-8'), passphrase=passphrase)
+              del key
+              listing = gpg(['--with-colons', '--fingerprint', '--list-secret-keys'])
+              # Each primary 'sec' record is immediately followed by its own 'fpr' record.
+              primaries_found, previous = [], None
+              for line in listing.splitlines():
+                  fields = line.split(':')
+                  if fields[0] == 'fpr' and previous == 'sec':
+                      primaries_found.append(fields[9])
+                  previous = fields[0]
+              if primaries_found != [signer]:
+                  raise SigningError('The imported secret key is not exactly the pinned release key')
+
+              with zipfile.ZipFile('verified/' + base + '-bundle.zip') as archive:
+                  files = {i.filename for i in archive.infolist() if not i.is_dir()}
+                  if files != expected:
+                      raise SigningError('Unexpected bundle contents')
+                  contents = {name: archive.read(name) for name in sorted(files)}
+              for name in primaries:
+                  (work / name).write_bytes(contents[prefix + name])
+                  gpg(['--local-user', signer, '--armor', '--detach-sign', '--output', str(work / (name + '.asc')), str(work / name)],
+                      passphrase=passphrase)
+                  status = gpg(['--status-fd', '1', '--verify', str(work / (name + '.asc')), str(work / name)])
+                  valid = [line.split() for line in status.splitlines() if line.startswith('[GNUPG:] VALIDSIG ')]
+                  if len(valid) != 1 or valid[0][-1] != signer:
+                      raise SigningError(name + ' signature does not verify against the pinned release key')
+                  contents[prefix + name + '.asc'] = (work / (name + '.asc')).read_bytes()
+              del passphrase
+
+              output_directory = pathlib.Path('signed')
+              output_directory.mkdir()
+              signed = output_directory / (base + '-bundle.zip')
+              with zipfile.ZipFile(signed, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                  for name in sorted(contents):
+                      info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                      info.external_attr = 0o644 << 16
+                      info.compress_type = zipfile.ZIP_DEFLATED
+                      archive.writestr(info, contents[name])
+              digest = hashlib.sha256(signed.read_bytes()).hexdigest()
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                  output.write('sha256=' + digest + '\n')
+              print('Signed ' + str(len(primaries)) + ' files with ' + signer + '; signed bundle SHA-256: ' + digest)
+          except SigningError as error:
+              sys.exit('Signing failed: ' + str(error) + '. No key material or gpg output was logged.')
+          except Exception:
+              sys.exit('Signing failed. No key material, gpg output or exception details were logged.')
+          finally:
+              subprocess.run(['gpgconf', '--kill', 'all'], env=environment, capture_output=True, timeout=30)
+              shutil.rmtree(home, ignore_errors=True)
+              shutil.rmtree(work, ignore_errors=True)
+          PY
+      - name: Upload to the Central Portal and wait for publication
+        env:
+          SIGNED_SHA256: ${{ steps.sign.outputs.sha256 }}
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, http.client, json, os, pathlib, re, sys, time, urllib.error, urllib.parse, urllib.request
+
+          class PublicationError(Exception):
+              pass
+
+          group, artifact, version = os.environ['GROUP_ID'], os.environ['ARTIFACT_ID'], os.environ['VERSION']
+          base = artifact + '-' + version
+          bundle = pathlib.Path('signed') / (base + '-bundle.zip')
+          data = bundle.read_bytes()
+          assert hashlib.sha256(data).hexdigest() == os.environ['SIGNED_SHA256'], 'Signed bundle changed after signing'
+
+          # Re-check right before the irreversible upload.
+          try:
+              urllib.request.urlopen('https://repo1.maven.org/maven2/' + group.replace('.', '/') + '/' + artifact + '/'
+                                     + version + '/' + base + '.pom', timeout=20)
+              sys.exit('This registry version already exists; refusing replacement.')
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  sys.exit('Registry preflight failed with HTTP ' + str(error.code))
+
+          username = os.environ.get('CENTRAL_TOKEN_USERNAME', '')
+          password = os.environ.get('CENTRAL_TOKEN_PASSWORD', '')
+          if not re.fullmatch(r'[\x21-\x39\x3b-\x7e]{4,256}', username) or not re.fullmatch(r'[\x21-\x7e]{8,512}', password):
+              sys.exit('CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD are missing or malformed.')
+          authorization = base64.b64encode((username + ':' + password).encode('utf-8')).decode('ascii')
+          # The derived value is not a registered secret, so mask it explicitly.
+          print('::add-mask::' + authorization, flush=True)
+          del username, password
+
+          def call(method, path, body=b'', content_type=None):
+              connection = http.client.HTTPSConnection('central.sonatype.com', timeout=120)
+              headers = {'Authorization': 'Bearer ' + authorization, 'Content-Length': str(len(body))}
+              if content_type:
+                  headers['Content-Type'] = content_type
+              try:
+                  connection.request(method, path, body=body, headers=headers)
+                  response = connection.getresponse()
+                  raw = response.read(1024 * 1024 + 1)
+                  if len(raw) > 1024 * 1024:
+                      raise PublicationError('Central Portal response exceeded its bound')
+                  return response.status, raw
+              finally:
+                  connection.close()
+
+          try:
+              boundary = 'lunixi-' + os.urandom(16).hex()
+              body = (b'--' + boundary.encode() + b'\r\n'
+                      + b'Content-Disposition: form-data; name="bundle"; filename="' + bundle.name.encode() + b'"\r\n'
+                      + b'Content-Type: application/octet-stream\r\n\r\n'
+                      + data + b'\r\n--' + boundary.encode() + b'--\r\n')
+              query = urllib.parse.urlencode({'publishingType': 'AUTOMATIC', 'name': group + ':' + artifact + ':' + version})
+              status, raw = call('POST', '/api/v1/publisher/upload?' + query, body, 'multipart/form-data; boundary=' + boundary)
+              if status != 201:
+                  raise PublicationError('Central Portal upload returned HTTP ' + str(status))
+              deployment = raw.decode('utf-8', 'replace').strip()
+              if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', deployment):
+                  raise PublicationError('Central Portal returned an unexpected deployment id')
+              print('Uploaded ' + bundle.name + ' as deployment ' + deployment + '.', flush=True)
+
+              state, failures = None, 0
+              for attempt in range(60):
+                  time.sleep(30)
+                  status, raw = call('POST', '/api/v1/publisher/status?' + urllib.parse.urlencode({'id': deployment}))
+                  if status >= 500 or status == 429:
+                      failures += 1
+                      if failures > 5:
+                          raise PublicationError('Central Portal status kept failing with HTTP ' + str(status))
+                      continue
+                  if status != 200:
+                      raise PublicationError('Central Portal status returned HTTP ' + str(status))
+                  result = json.loads(raw)
+                  if result.get('deploymentId') != deployment:
+                      raise PublicationError('Central Portal status describes another deployment')
+                  state = result.get('deploymentState')
+                  print('Deployment ' + deployment + ': ' + str(state), flush=True)
+                  if state == 'PUBLISHED':
+                      print('Published ' + group + ':' + artifact + ':' + version + ' (purls: '
+                            + ', '.join(str(p) for p in result.get('purls') or []) + ').')
+                      break
+                  if state == 'FAILED':
+                      print(json.dumps(result.get('errors'), sort_keys=True)[:4000], file=sys.stderr)
+                      raise PublicationError('Central Portal rejected the deployment')
+                  if state not in {'PENDING', 'VALIDATING', 'VALIDATED', 'PUBLISHING'}:
+                      raise PublicationError('Central Portal returned an unknown deployment state')
+              else:
+                  raise PublicationError('Deployment ' + deployment + ' is still ' + str(state)
+                                         + ' after 30 minutes; check central.sonatype.com and do not upload again')
+          except PublicationError as error:
+              sys.exit('Maven Central publication failed: ' + str(error) + '.')
+          except Exception:
+              sys.exit('Maven Central publication failed. No credential or exception details were logged.')
+          PY
+      - name: Remove signing state
+        if: always()
+        run: |
+          rm -rf signed
+          printf '%s\n' 'MAVEN_GPG_PRIVATE_KEY=' 'MAVEN_GPG_PASSPHRASE=' 'CENTRAL_TOKEN_USERNAME=' 'CENTRAL_TOKEN_PASSWORD=' >> "$GITHUB_ENV"

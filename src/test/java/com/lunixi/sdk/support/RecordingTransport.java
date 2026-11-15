@@ -26,12 +26,18 @@ public final class RecordingTransport implements HttpTransport {
         public final String url;
         public final Map<String, String> headers;
         public final String body;
+        /** Whether the call went through {@link HttpTransport#sendBinary}. */
+        public final boolean binary;
+        /** The byte body of a call that went through {@link HttpTransport#sendBytes}, otherwise {@code null}. */
+        public final byte[] bytes;
 
-        Call(String method, String url, Map<String, String> headers, String body) {
+        Call(String method, String url, Map<String, String> headers, String body, boolean binary, byte[] bytes) {
             this.method = method;
             this.url = url;
             this.headers = Map.copyOf(headers);
             this.body = body;
+            this.binary = binary;
+            this.bytes = bytes == null ? null : bytes.clone();
         }
     }
 
@@ -56,6 +62,12 @@ public final class RecordingTransport implements HttpTransport {
 
     /** Queues the next response for a non-token call, with headers. */
     public RecordingTransport enqueue(int statusCode, Map<String, String> headers, String body) {
+        responses.add(new HttpResult(statusCode, headers, body));
+        return this;
+    }
+
+    /** Queues the next response as raw bytes (a binary download), with headers. */
+    public RecordingTransport enqueueBinary(int statusCode, Map<String, String> headers, byte[] body) {
         responses.add(new HttpResult(statusCode, headers, body));
         return this;
     }
@@ -87,7 +99,24 @@ public final class RecordingTransport implements HttpTransport {
 
     @Override
     public HttpResult send(String method, String url, Map<String, String> headers, String body, Duration timeout) {
-        calls.add(new Call(method, url, headers, body));
+        return answer(method, url, headers, body, false, null);
+    }
+
+    @Override
+    public HttpResult sendBinary(String method, String url, Map<String, String> headers, String body,
+                                 Duration timeout) {
+        return answer(method, url, headers, body, true, null);
+    }
+
+    @Override
+    public HttpResult sendBytes(String method, String url, Map<String, String> headers, byte[] body,
+                                Duration timeout) {
+        return answer(method, url, headers, null, false, body);
+    }
+
+    private HttpResult answer(String method, String url, Map<String, String> headers, String body, boolean binary,
+                              byte[] bytes) {
+        calls.add(new Call(method, url, headers, body, binary, bytes));
 
         if (url.endsWith(authTokenPath)) {
             return new HttpResult(200, Map.of("x-request-id", "req_token"),

@@ -1,5 +1,6 @@
 package com.lunixi.sdk.http;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -7,12 +8,13 @@ import java.util.Optional;
 import com.lunixi.sdk.json.Json;
 import com.lunixi.sdk.json.JsonParseException;
 
-/** One HTTP response: status, headers and the body text. */
+/** One HTTP response: status, headers and the body (text, or raw bytes for a binary download). */
 public final class HttpResult {
 
     private final int statusCode;
     private final Map<String, String> headers;
     private final String body;
+    private final byte[] bytes;
 
     /**
      * @param statusCode the HTTP status code
@@ -23,6 +25,22 @@ public final class HttpResult {
         this.statusCode = statusCode;
         this.headers = normalise(headers);
         this.body = body == null ? "" : body;
+        this.bytes = null;
+    }
+
+    /**
+     * A response whose body was read as raw bytes ({@link HttpTransport#sendBinary}). {@link #body()} decodes the
+     * bytes as UTF-8, so an error answer can still be read as a JSON envelope.
+     *
+     * @param statusCode the HTTP status code
+     * @param headers    response headers; keys are matched case-insensitively
+     * @param bytes      the response body bytes, possibly empty
+     */
+    public HttpResult(int statusCode, Map<String, String> headers, byte[] bytes) {
+        this.statusCode = statusCode;
+        this.headers = normalise(headers);
+        this.bytes = bytes == null ? new byte[0] : bytes.clone();
+        this.body = new String(this.bytes, StandardCharsets.UTF_8);
     }
 
     public int statusCode() {
@@ -31,6 +49,15 @@ public final class HttpResult {
 
     public String body() {
         return body;
+    }
+
+    /**
+     * The body as bytes: the raw bytes of a binary response, otherwise the UTF-8 encoding of {@link #body()}.
+     *
+     * @return a copy of the body bytes
+     */
+    public byte[] bytes() {
+        return bytes == null ? body.getBytes(StandardCharsets.UTF_8) : bytes.clone();
     }
 
     /** True for {@code 2xx}. Note that a {@code 2xx} envelope can still report a failure. */
