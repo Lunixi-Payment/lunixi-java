@@ -30,7 +30,18 @@ final class DurableCommerceFixture {
     static final String PAYMENT = "pi_durable_fixture";
     static final String SECRET = "synthetic_webhook_secret_0123456789";
     static final String TOKEN = "synthetic_browser_token_DO_NOT_LOG";
-    static final OrderSnapshot SNAPSHOT = new OrderSnapshot("merchant_fixture", ORDER, "1990", "TRY");
+    // Synthetic order details every payment requires (OrderDetails).
+    static final Map<String, Object> BUYER = Map.of("name", "Ada", "surname", "Yilmaz", "identityNumber", "11111111111",
+        "email", "ada@example.com", "gsmNumber", "+905350000000", "city", "Istanbul", "country", "Turkey", "zipCode", "34000");
+    static final Map<String, Object> ADDRESS = Map.of("contactName", "Ada Yilmaz", "address", "Example Street 1",
+        "city", "Istanbul", "country", "Turkey", "zipCode", "34000");
+    static final OrderSnapshot SNAPSHOT = withDetails(new OrderSnapshot("merchant_fixture", ORDER, "1990", "TRY"));
+
+    /** The order with the synthetic buyer, billing address and one virtual item for its whole amount. */
+    static OrderSnapshot withDetails(OrderSnapshot order) {
+        return order.withOrderDetails(BUYER, ADDRESS, null, List.of(Map.of("id", "SKU-1", "name", "Service",
+            "category1", "General", "itemType", "VIRTUAL", "price", order.amount())));
+    }
 
     private DurableCommerceFixture() { }
 

@@ -111,9 +111,34 @@ class DurableCommerceServiceTest {
         assertEquals(key, store.record().get("key"));
     }
 
+    @Test void anIncompleteOrderIsRefusedBeforeAnAttemptIsReserved() {
+        OrderSnapshot bare = new OrderSnapshot("merchant_fixture", DurableCommerceFixture.ORDER, "1990", "TRY");
+        com.lunixi.sdk.exception.ConfigurationException refused = assertThrows(com.lunixi.sdk.exception.ConfigurationException.class,
+                () -> service.start(DurableCommerceFixture.ORDER, bare, "https://shop.invalid/return", true, false, "en"));
+        assertEquals("A checkout requires the order details: buyer, billingAddress, basketItems.", refused.getMessage());
+        assertEquals(0, gateway.bodies.size());
+        assertNull(store.record(), "no attempt is reserved");
+    }
+
+    @Test void theIntentCarriesTheOrderDetailsOutsideTheAttemptDescriptor() {
+        start();
+        Map<String, Object> body = Json.parseObject(gateway.bodies.get(0));
+        assertEquals(DurableCommerceFixture.BUYER, body.get("buyer"));
+        assertEquals(DurableCommerceFixture.ADDRESS, body.get("billingAddress"));
+        assertEquals(1, ((java.util.List<?>) body.get("basketItems")).size());
+        // A corrected phone number reuses the attempt: the order details are not in the descriptor.
+        Map<String, Object> buyer = new java.util.LinkedHashMap<>(DurableCommerceFixture.BUYER); buyer.put("gsmNumber", "+905350000001");
+        OrderSnapshot corrected = DurableCommerceFixture.SNAPSHOT.withOrderDetails(buyer, DurableCommerceFixture.ADDRESS, null,
+                DurableCommerceFixture.SNAPSHOT.basketItems());
+        assertEquals(DurableCommerceFixture.SNAPSHOT, corrected);
+        assertFalse(corrected.toString().contains("Ada"), "toString never shows the buyer");
+        service.start(DurableCommerceFixture.ORDER, corrected, "https://shop.invalid/return", true, false, "en");
+        assertEquals(1, gateway.bodies.size(), "the cached attempt is reused, no second create");
+    }
+
     @Test void changedOrderOrCheckoutSettingsDoNotDispatchAnotherCreate() {
         loseCreate();
-        OrderSnapshot changed = new OrderSnapshot("merchant_fixture", DurableCommerceFixture.ORDER, "2990", "TRY");
+        OrderSnapshot changed = DurableCommerceFixture.withDetails(new OrderSnapshot("merchant_fixture", DurableCommerceFixture.ORDER, "2990", "TRY"));
         assertThrows(IllegalStateException.class, () -> service.start(DurableCommerceFixture.ORDER,
                 changed, "https://shop.invalid/return", true, false, "en"));
         assertThrows(IllegalStateException.class, () -> service.start(DurableCommerceFixture.ORDER,

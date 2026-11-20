@@ -17,7 +17,11 @@ import java.util.Base64;
 SecretBox box = new SecretBox(Base64.getDecoder().decode(System.getenv("LUNIXI_STORAGE_KEY")));
 CommerceService commerce = new CommerceService(client, nativeStore, box);
 OrderSnapshot order = new OrderSnapshot(merchantId, storedOrderId,
-        Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency);
+        Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency)
+        // Her ödemenin zorunlu sipariş bilgileri, kayıtlı siparişinizden (yer tutucu değil):
+        // alıcı (ip gönderilmeyebilir: Lunixi formu alır), fatura adresi, PHYSICAL kalemde
+        // teslimat adresi (yoksa null) ve toplamı tutara eşit sepet kalemleri.
+        .withOrderDetails(storedBuyer, storedBillingAddress, storedShippingAddress, storedBasketItems);
 CheckoutSession checkout = commerce.start(durableOrderKey, order,
         "https://shop.example/return/owned-order", false, false, "tr");
 String browserToken = checkout.token(); // mağazanın kendi sayfasında gömülü form

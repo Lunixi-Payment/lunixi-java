@@ -17,9 +17,12 @@ import java.util.List;
  */
 public final class SplitPaymentValues {
 
-    /** Body fields of {@code POST /payments/split}. */
+    /**
+     * Body fields of {@code POST /payments/split}. {@code buyer}, {@code billingAddress} and {@code basketItems}
+     * are required ({@code shippingAddress} for a {@code PHYSICAL} item; {@link OrderDetails}).
+     */
     public static final List<String> SPLIT_PAYMENT_FIELDS = List.of("totalAmount", "currency", "ownerRef", "legs",
-            "orderId", "ownerScope", "callbackUrl");
+            "orderId", "ownerScope", "callbackUrl", "buyer", "billingAddress", "shippingAddress", "basketItems");
 
     /**
      * Method blocks a non-card leg can carry. Meal card, open banking, shopping loan and bank transfer cannot be

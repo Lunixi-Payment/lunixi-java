@@ -11,12 +11,16 @@ import com.lunixi.sdk.exception.ConfigurationException;
  *
  * <pre>
  * Map&lt;String, Object&gt; stored = client.payments().storeCard(
- *         StoreCardRequest.create(cardFields, customer.cardUserKey(), "https://merchant.example/cards/return"),
+ *         StoreCardRequest.create(cardFields, customer.cardUserKey(), "https://merchant.example/cards/return")
+ *                 .withBuyer(buyer)
+ *                 .withBillingAddress(billingAddress),
  *         persistedOperationKey);
  * </pre>
  *
- * <p>The card fields are sent as given and are never shown in an error message or in {@link #toString()}. A
- * rule violation is a {@link ConfigurationException}.
+ * <p>The buyer and the billing address are required ({@link OrderDetails}, no basket); later stored-card charges
+ * take the buyer from this first payment. The card fields are sent as given and are never shown in an error
+ * message or in {@link #toString()}; neither are the buyer and the address. A rule violation is a
+ * {@link ConfigurationException}.
  */
 public final class StoreCardRequest {
 
@@ -24,6 +28,8 @@ public final class StoreCardRequest {
     private final String cardUserKey;
     private final String callbackUrl;
     private String currency;
+    private Map<String, Object> buyer;
+    private Map<String, Object> billingAddress;
 
     private StoreCardRequest(Map<String, ?> card, String cardUserKey, String callbackUrl) {
         this.card = CardRules.card(card);
@@ -50,7 +56,34 @@ public final class StoreCardRequest {
         return this;
     }
 
-    /** @return the body that is sent, a new map: {@code card}, {@code cardUserKey}, {@code callbackUrl}, {@code currency} */
+    /**
+     * @param buyer the card holder as the buyer (required): {@link OrderDetails#BUYER_REQUIRED_FIELDS}
+     * @return this request
+     */
+    public StoreCardRequest withBuyer(Map<String, ?> buyer) {
+        if (buyer == null) {
+            throw new ConfigurationException("buyer must be a map of the buyer fields.");
+        }
+        this.buyer = new LinkedHashMap<>(buyer);
+        return this;
+    }
+
+    /**
+     * @param billingAddress the billing address (required): {@link OrderDetails#ADDRESS_REQUIRED_FIELDS}
+     * @return this request
+     */
+    public StoreCardRequest withBillingAddress(Map<String, ?> billingAddress) {
+        if (billingAddress == null) {
+            throw new ConfigurationException("billingAddress must be a map of the address fields.");
+        }
+        this.billingAddress = new LinkedHashMap<>(billingAddress);
+        return this;
+    }
+
+    /**
+     * @return the body that is sent, a new map: {@code card}, {@code cardUserKey}, {@code callbackUrl},
+     *     {@code currency}, {@code buyer}, {@code billingAddress}
+     */
     public Map<String, Object> toBody() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("card", new LinkedHashMap<>(card));
@@ -62,6 +95,12 @@ public final class StoreCardRequest {
         }
         if (currency != null) {
             body.put("currency", currency);
+        }
+        if (buyer != null) {
+            body.put("buyer", new LinkedHashMap<>(buyer));
+        }
+        if (billingAddress != null) {
+            body.put("billingAddress", new LinkedHashMap<>(billingAddress));
         }
         return body;
     }

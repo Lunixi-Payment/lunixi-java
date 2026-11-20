@@ -14,6 +14,8 @@ import com.lunixi.sdk.LunixiConfig;
 import com.lunixi.sdk.auth.CanonicalRequest;
 import com.lunixi.sdk.auth.Ed25519KeyPair;
 import com.lunixi.sdk.exception.ConfigurationException;
+import com.lunixi.sdk.json.Json;
+import com.lunixi.sdk.support.OrderFixture;
 import com.lunixi.sdk.support.RecordingTransport;
 
 /** BIN and installment lookups, stored cards, marketplace intents, analytics and the payment list. */
@@ -135,7 +137,7 @@ class PaymentCardsAndMarketplaceTest {
     @Test void storeCardIsSignedWithTheRequiredKey() {
         transport.enqueue(200, OK);
         StoreCardRequest request = StoreCardRequest.create(card(), "cuk_1", "https://merchant.example/cards/return")
-                .withCurrency("TRY");
+                .withCurrency("TRY").withBuyer(OrderFixture.BUYER).withBillingAddress(OrderFixture.ADDRESS);
         client.payments().storeCard(request, KEY);
         RecordingTransport.Call call = transport.onlyApiCall();
         assertEquals("POST", call.method);
@@ -144,13 +146,17 @@ class PaymentCardsAndMarketplaceTest {
         assertSigned(call);
         assertEquals("{\"card\":{\"cardHolderName\":\"Test Buyer\",\"cardNumber\":\"" + PAN + "\",\"expireMonth\":\"12\","
                 + "\"expireYear\":\"2030\",\"cvc\":\"" + CVV + "\"},\"cardUserKey\":\"cuk_1\","
-                + "\"callbackUrl\":\"https://merchant.example/cards/return\",\"currency\":\"TRY\"}", call.body);
+                + "\"callbackUrl\":\"https://merchant.example/cards/return\",\"currency\":\"TRY\","
+                + "\"buyer\":" + Json.stringify(OrderFixture.BUYER) + ",\"billingAddress\":"
+                + Json.stringify(OrderFixture.ADDRESS) + "}", call.body);
         assertFalse(request.toString().contains(PAN));
         assertFalse(request.toString().contains(CVV));
+        assertFalse(request.toString().contains("ada@example.com"));
     }
 
     @Test void storeCardWithoutAKeyOrCardSendsNothingAndShowsNoCardData() {
-        StoreCardRequest request = StoreCardRequest.create(card(), null, null);
+        StoreCardRequest request = StoreCardRequest.create(card(), null, null)
+                .withBuyer(OrderFixture.BUYER).withBillingAddress(OrderFixture.ADDRESS);
         for (String key : new String[]{null, "", "short"}) {
             ConfigurationException error = assertThrows(ConfigurationException.class,
                     () -> client.payments().storeCard(request, key));
@@ -160,6 +166,19 @@ class PaymentCardsAndMarketplaceTest {
         assertThrows(ConfigurationException.class, () -> StoreCardRequest.create(Map.of(), null, null));
         assertThrows(ConfigurationException.class, () -> StoreCardRequest.create(card(), null, "http://merchant.example"));
         assertThrows(ConfigurationException.class, () -> client.payments().storeCard(Map.of("cardUserKey", "cuk_1"), KEY));
+        assertNothingSent();
+    }
+
+    @Test void storingACardRequiresTheBuyerAndTheBillingAddressButNoBasket() {
+        ConfigurationException refused = assertThrows(ConfigurationException.class,
+                () -> client.payments().storeCard(StoreCardRequest.create(card(), null, null), KEY));
+        assertEquals("Storing a card requires the order details: buyer, billingAddress.", refused.getMessage());
+        Map<String, Object> noIp = new LinkedHashMap<>(OrderFixture.BUYER);
+        noIp.remove("ip");
+        refused = assertThrows(ConfigurationException.class, () -> client.payments().storeCard(
+                StoreCardRequest.create(card(), null, null).withBuyer(noIp).withBillingAddress(OrderFixture.ADDRESS), KEY));
+        assertEquals("Storing a card requires the order details: buyer.ip.", refused.getMessage());
+        assertFalse(refused.getMessage().contains(PAN));
         assertNothingSent();
     }
 
@@ -204,7 +223,7 @@ class PaymentCardsAndMarketplaceTest {
         }
         body.put("sellers", sellers);
         body.put("multiSellerPolicy", "ALL_OR_NOTHING");
-        return body;
+        return OrderFixture.withOrderDetails(body, "10000");
     }
 
     @Test void marketplaceIntentIsSignedAndSentAsGiven() {
@@ -217,7 +236,7 @@ class PaymentCardsAndMarketplaceTest {
         assertSigned(call);
         assertEquals("{\"amount\":\"10000\",\"currency\":\"TRY\",\"orderId\":\"order-1\",\"sellers\":["
                 + "{\"subDealerId\":\"seller-1\",\"amountMinor\":\"6000\"},{\"subDealerId\":\"seller-2\",\"amountMinor\":\"4000\"}],"
-                + "\"multiSellerPolicy\":\"ALL_OR_NOTHING\"}", call.body);
+                + "\"multiSellerPolicy\":\"ALL_OR_NOTHING\"," + OrderFixture.json("10000") + "}", call.body);
 
         client.payments().createMarketplaceIntent(marketplace("10000"));
         RecordingTransport.Call withoutKey = transport.apiCalls().get(1);
@@ -249,6 +268,11 @@ class PaymentCardsAndMarketplaceTest {
         assertThrows(ConfigurationException.class, () -> client.payments().createMarketplaceIntent(noSubDealer, KEY));
         assertThrows(ConfigurationException.class, () -> client.payments().createMarketplaceIntent(
                 marketplace("10000"), "short"), "malformed key");
+        Map<String, Object> noBasket = marketplace("10000");
+        noBasket.remove("basketItems");
+        ConfigurationException refused = assertThrows(ConfigurationException.class,
+                () -> client.payments().createMarketplaceIntent(noBasket, KEY));
+        assertEquals("A marketplace payment intent requires the order details: basketItems.", refused.getMessage());
         assertNothingSent();
     }
 

@@ -24,6 +24,7 @@ import com.lunixi.sdk.exception.LunixiApiException;
 import com.lunixi.sdk.http.Route;
 import com.lunixi.sdk.http.RoutePage;
 import com.lunixi.sdk.json.Json;
+import com.lunixi.sdk.support.OrderFixture;
 import com.lunixi.sdk.support.RecordingTransport;
 
 /**
@@ -71,8 +72,9 @@ class MarketplaceClientTest {
         return map("amount", amount, "currency", "TRY", "orderId", "ORD-MP-1",
                 "card", map("cardHolderName", "Ada Yilmaz", "cardNumber", CARD_NUMBER, "expireMonth", "12",
                         "expireYear", "28", "cvcNumber", "123"),
-                "buyer", map("name", "Ada", "surname", "Yilmaz"),
-                "billingAddress", map("city", "Istanbul"),
+                "buyer", OrderFixture.BUYER,
+                "billingAddress", OrderFixture.ADDRESS,
+                "shippingAddress", OrderFixture.ADDRESS,
                 "basketItems", List.of(map("id", "SKU-1", "price", amount, "name", "Demo", "category1", "Demo",
                         "itemType", "PHYSICAL")));
     }
@@ -120,8 +122,8 @@ class MarketplaceClientTest {
     void createCheckoutIntentSendsTheSplitSignedWithTheKey() {
         transport.enqueue(201, "{\"success\":true,\"paymentId\":\"pi_1\",\"token\":\"tok_1\","
                 + "\"checkoutFormContent\":\"<script></script>\"}");
-        Map<String, Object> intent = marketplace.createCheckoutIntent(map("amount", "100000", "currency", "TRY",
-                "orderId", "WC-7"), legs(), MarketplaceValues.MultiSellerPolicy.ALL_OR_NOTHING, "idem-mp-1");
+        Map<String, Object> intent = marketplace.createCheckoutIntent(OrderFixture.withOrderDetails(map("amount",
+                "100000", "currency", "TRY", "orderId", "WC-7"), "100000"), legs(), MarketplaceValues.MultiSellerPolicy.ALL_OR_NOTHING, "idem-mp-1");
         assertEquals("tok_1", intent.get("token"));
         RecordingTransport.Call call = transport.onlyApiCall();
         assertEquals(PAY + "/intents", call.url);
@@ -140,7 +142,7 @@ class MarketplaceClientTest {
         transport.enqueue(200, "{\"success\":false,\"code\":\"marketplace.payment.seller_not_eligible\","
                 + "\"message\":\"seller not eligible\"}");
         LunixiApiException error = assertThrows(LunixiApiException.class, () -> marketplace.createCheckoutIntent(
-                map("amount", "1000", "currency", "TRY", "orderId", "o1"),
+                OrderFixture.withOrderDetails(map("amount", "1000", "currency", "TRY", "orderId", "o1"), "1000"),
                 List.of(map("subDealerId", "d_1", "amountMinor", "1000"))));
         assertEquals("marketplace.payment.seller_not_eligible", error.code().orElseThrow());
         assertEquals(200, error.statusCode());
@@ -148,7 +150,8 @@ class MarketplaceClientTest {
 
     @Test
     void sellerLegsAreCheckedBeforeSending() {
-        Map<String, Object> intent = map("amount", "1000", "currency", "TRY", "orderId", "o1");
+        Map<String, Object> intent = OrderFixture.withOrderDetails(map("amount", "1000", "currency", "TRY",
+                "orderId", "o1"), "1000");
         ConfigurationException empty = assertThrows(ConfigurationException.class,
                 () -> marketplace.createCheckoutIntent(intent, List.of()));
         assertTrue(empty.getMessage().contains("at least one seller"), empty.getMessage());
@@ -216,6 +219,31 @@ class MarketplaceClientTest {
         assertTrue(messages.get(0).contains("buyer"), messages.get(0));
         assertTrue(messages.get(4).contains("add up to"), messages.get(4));
         assertNothingSent();
+    }
+
+    @Test
+    void theOrderDetailsAreCheckedBeforeSending() {
+        ConfigurationException noShipping = assertThrows(ConfigurationException.class,
+                () -> marketplace.chargeMarketplaceCard(with(chargeRequest("100000"), "shippingAddress", null)));
+        assertEquals("A marketplace card charge requires the order details: shippingAddress.", noShipping.getMessage());
+        Map<String, Object> noIp = new LinkedHashMap<>(OrderFixture.BUYER);
+        noIp.remove("ip");
+        ConfigurationException charge = assertThrows(ConfigurationException.class,
+                () -> marketplace.chargeMarketplaceCard2d(with(chargeRequest("100000"), "buyer", noIp), legs()));
+        assertEquals("A marketplace card charge requires the order details: buyer.ip.", charge.getMessage());
+        ConfigurationException intent = assertThrows(ConfigurationException.class,
+                () -> marketplace.createCheckoutIntent(map("amount", "1000", "currency", "TRY", "orderId", "o1"),
+                        List.of(map("subDealerId", "d_1", "amountMinor", "1000"))));
+        assertEquals("A marketplace payment intent requires the order details: buyer, billingAddress, basketItems.",
+                intent.getMessage());
+        assertNothingSent();
+
+        transport.enqueue(201, "{\"success\":true,\"paymentId\":\"pi_1\",\"token\":\"tok_1\"}");
+        Map<String, Object> checkout = OrderFixture.withOrderDetails(map("amount", "1000", "currency", "TRY",
+                "orderId", "o1"), "1000");
+        checkout.put("buyer", noIp);
+        marketplace.createCheckoutIntent(checkout, List.of(map("subDealerId", "d_1", "amountMinor", "1000")));
+        assertEquals(1, transport.apiCalls().size(), "a checkout intent may leave out the buyer IP");
     }
 
     @Test

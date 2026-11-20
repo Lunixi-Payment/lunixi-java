@@ -19,7 +19,11 @@ import java.util.Base64;
 SecretBox box = new SecretBox(Base64.getDecoder().decode(System.getenv("LUNIXI_STORAGE_KEY")));
 CommerceService commerce = new CommerceService(client, nativeStore, box);
 OrderSnapshot order = new OrderSnapshot(merchantId, storedOrderId,
-        Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency);
+        Money.minor(storedDecimalTotal, Money.exponent(storedCurrency)), storedCurrency)
+        // Order details every payment requires, from your stored order (never placeholders):
+        // buyer (ip may be left out: the Lunixi form takes it), billing address, shipping
+        // address for PHYSICAL items (else null) and the basket items adding up to the total.
+        .withOrderDetails(storedBuyer, storedBillingAddress, storedShippingAddress, storedBasketItems);
 CheckoutSession checkout = commerce.start(durableOrderKey, order,
         "https://shop.example/return/owned-order", false, false, "en");
 // hosted=false embeds on the merchant site; preauth=false requests immediate capture.

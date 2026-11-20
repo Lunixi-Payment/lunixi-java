@@ -125,7 +125,8 @@ final class SplitPaymentRules {
     /**
      * Known fields only, 1–5 legs, minor-unit amounts that add up to {@code totalAmount}, a card leg with
      * {@code cardToken} and no method block, a non-card leg with exactly its own block (with {@code providerCode})
-     * and no card fields, one leg per provider and per card, {@code callbackUrl} when a card leg uses 3D Secure.
+     * and no card fields, one leg per provider and per card, {@code callbackUrl} when a card leg uses 3D Secure,
+     * the order details ({@link OrderDetails}).
      */
     static void assertPayload(Map<String, Object> body) {
         if (body == null) {
@@ -143,6 +144,7 @@ final class SplitPaymentRules {
         String totalAmount = PaymentRules.positiveMinor(body.get("totalAmount"), "totalAmount");
         PaymentRules.currency(body.get("currency"));
         PaymentRules.text(body.get("ownerRef"), "ownerRef");
+        OrderDetails.assertComplete(body, "A split payment", true, false);
         if (body.get("orderId") != null) {
             PaymentRules.text(body.get("orderId"), "orderId");
         }

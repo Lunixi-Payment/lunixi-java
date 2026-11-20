@@ -12,6 +12,8 @@ import com.lunixi.sdk.LunixiConfig;
 import com.lunixi.sdk.auth.CanonicalRequest;
 import com.lunixi.sdk.auth.Ed25519KeyPair;
 import com.lunixi.sdk.auth.Ed25519Signer;
+import com.lunixi.sdk.exception.ConfigurationException;
+import com.lunixi.sdk.support.OrderFixture;
 import com.lunixi.sdk.support.RecordingTransport;
 import com.lunixi.sdk.json.Json;
 
@@ -24,7 +26,20 @@ class PaymentsTest {
         keys = Ed25519KeyPair.generate(); transport = new RecordingTransport("/api/v1/auth/token", "fixture-only");
         client = LunixiClient.create(LunixiConfig.builder().baseUrl("https://gateway.invalid").keyId("test-key").privateKey(keys.privateKeyPem()).transport(transport).maxRetries(0).build());
     }
-    Map<String, Object> request() { return Map.of("amount", "1990", "currency", "TRY", "orderId", "order-1", "callbackUrl", "https://shop.invalid/return"); }
+    Map<String, Object> request() { return OrderFixture.withOrderDetails(Map.of("amount", "1990", "currency", "TRY", "orderId", "order-1", "callbackUrl", "https://shop.invalid/return"), "1990"); }
+    @Test void anIntentWithoutTheOrderDetailsIsNotSentAndTheBuyerIpMayBeLeftOut() {
+        ConfigurationException refused = assertThrows(ConfigurationException.class,
+            () -> client.payments().createIntent(Map.of("amount", "1990", "currency", "TRY", "orderId", "order-1"), KEY));
+        assertEquals("A payment intent requires the order details: buyer, billingAddress, basketItems.", refused.getMessage());
+        var noEmail = new java.util.LinkedHashMap<>(request()); var buyer = new java.util.LinkedHashMap<>(OrderFixture.BUYER);
+        buyer.remove("email"); buyer.remove("ip"); noEmail.put("buyer", buyer);
+        refused = assertThrows(ConfigurationException.class, () -> client.payments().createIntent(noEmail, KEY));
+        assertEquals("A payment intent requires the order details: buyer.email.", refused.getMessage());
+        assertTrue(transport.calls().isEmpty());
+        buyer.put("email", "ada@example.com");
+        transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"merchant-token\"}}");
+        assertEquals("pi-1", client.payments().createIntent(noEmail, KEY).paymentId(), "the Lunixi form takes the IP from the browser");
+    }
     @Test void signsTheExactIntentBodyAndReadsActualPaymentIdToken() throws Exception {
         transport.enqueue(201, "{\"data\":{\"paymentId\":\"pi-1\",\"token\":\"embedded-only-token\",\"paymentPageUrl\":\"https://pay.lunixi.com/payment/hosted-origin-token-012345\"}}");
         CheckoutSession result = client.payments().createIntent(request(), KEY);

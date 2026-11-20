@@ -80,12 +80,14 @@ public final class PaymentLinkValues {
         }
     }
 
-    /** Each {@code buyerFields} entry. */
+    /**
+     * Value of a {@code buyerFields} entry. Payment providers require the buyer, the identity number and the
+     * billing address, so the link page always asks all five fields: {@code REQUIRED} is the only value (the
+     * gateway answers any other with 400; leaving a field out means {@code REQUIRED}).
+     */
     public static final class BuyerFieldRequirement {
-        public static final String HIDDEN = "HIDDEN";
-        public static final String OPTIONAL = "OPTIONAL";
         public static final String REQUIRED = "REQUIRED";
-        public static final List<String> ALL = List.of(HIDDEN, OPTIONAL, REQUIRED);
+        public static final List<String> ALL = List.of(REQUIRED);
 
         private BuyerFieldRequirement() {
         }

@@ -22,7 +22,12 @@ public final class CommerceService {
         Map<String, Object> metadata = new LinkedHashMap<>(); metadata.put("lunixiCommerce", proof);
         if (hosted) { metadata.put("allowedOrigin", "https://pay.lunixi.com"); }
         Map<String, Object> request = new LinkedHashMap<>(); request.put("amount", order.amount()); request.put("currency", order.currency()); request.put("orderId", order.orderId()); request.put("callbackUrl", callback); request.put("preauth", preauth); request.put("locale", locale); request.put("metadata", metadata);
+        // Order details go with the intent but not into the attempt descriptor: a
+        // corrected address or phone number reuses the attempt (same as PHP/Python).
         String descriptor = OrderSnapshot.hash(Json.stringify(request));
+        Map<String, Object> intent = new LinkedHashMap<>(request); intent.putAll(order.orderDetails());
+        // Checked BEFORE the reservation: an incomplete order never becomes a stored attempt.
+        OrderDetails.assertComplete(intent, "A checkout", true, true);
         Map<String, Object> record = store.transaction(orderKey, access -> {
             Map<String, Object> previous = access.load();
             if (previous != null) {
@@ -46,7 +51,7 @@ public final class CommerceService {
         // Map.of has randomized iteration order between JVMs. Financial retry
         // bytes must keep the same field order after a process restart.
         proof.put("attempt", OrderSnapshot.hash((String) record.get("key")));
-        CheckoutSession session = client.payments().createIntent(request, (String) record.get("key"));
+        CheckoutSession session = client.payments().createIntent(intent, (String) record.get("key"));
         store.transaction(orderKey, access -> {
             Map<String, Object> current = required(access.load());
             if (!record.get("key").equals(current.get("key")) || (!"".equals(current.get("paymentId")) && !session.paymentId().equals(current.get("paymentId")))) { throw new IllegalStateException("Concurrent attempt identity changed."); }

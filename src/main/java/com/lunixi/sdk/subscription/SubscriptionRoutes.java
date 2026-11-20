@@ -58,8 +58,13 @@ public final class SubscriptionRoutes {
         routes.put("plans.upsertTranslation", Route.of("PATCH", SUBS + "/plans/:planId/translations/:locale")
                 .asFree());
 
+        // Renewals take the buyer from this record: identity and billing details are
+        // required (400 subscription.customer.field_required).
         routes.put("customers.upsert", Route.of("PUT", SUBS + "/customers").optionalKey()
-                .withRequired("externalId").withOptional("email", "name", "phone", "locale", "metadata"));
+                .withRequired("externalId", "name", "surname", "email", "gsmNumber", "identityNumber",
+                        "billingAddress", "billingCity", "billingCountry", "billingZipCode")
+                .withOptional("billingContactName", "shippingContactName", "shippingAddress", "shippingCity",
+                        "shippingCountry", "shippingZipCode"));
         routes.put("customers.get", get("/customers/:customerId"));
         routes.put("customers.getByExternalId", get("/customers/by-external/:externalId"));
         routes.put("customers.list", get("/customers").withQuery(List.of("search", "includeArchived"),

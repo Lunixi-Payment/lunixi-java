@@ -229,8 +229,8 @@ public final class CreatePaymentLinkRequest {
     }
 
     /**
-     * Each of {@link #BUYER_FIELD_KEYS}: a {@link PaymentLinkValues.BuyerFieldRequirement} value; {@code null}
-     * clears it.
+     * Each of {@link #BUYER_FIELD_KEYS}: {@code REQUIRED} ({@link PaymentLinkValues.BuyerFieldRequirement}), the
+     * only value: the link page always asks all five; {@code null} clears it.
      */
     public CreatePaymentLinkRequest withBuyerFields(Map<String, String> buyerFields) {
         if (buyerFields != null) {

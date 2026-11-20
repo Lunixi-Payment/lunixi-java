@@ -159,6 +159,7 @@ class CatalogParityTest {
                 "DIRECT_METHOD_PAYMENT_FIELDS", PaymentMethod.DIRECT_METHOD_PAYMENT_FIELDS,
                 "PAYMENT_ACTION_CONFIRM_FIELDS", PaymentMethod.PAYMENT_ACTION_CONFIRM_FIELDS,
                 "LIST_SPLIT_PAYMENTS_FILTERS", SplitPaymentValues.LIST_SPLIT_PAYMENTS_FILTERS,
+                "SPLIT_PAYMENT_FIELDS", SplitPaymentValues.SPLIT_PAYMENT_FIELDS,
                 "BankTransferEvents.ALL", PaymentBankTransferEvents.ALL,
                 "BankTransferException.STATUSES", PaymentBankTransferExceptionStatus.ALL,
                 "ProductCategory.ALL", ProductCategory.ALL));

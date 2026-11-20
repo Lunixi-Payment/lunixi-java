@@ -300,7 +300,13 @@ class SubscriptionsClientTest {
         for (int i = 0; i < 3; i++) {
             transport.enqueue(200, "{\"success\":true,\"data\":{\"id\":\"cus_1\",\"externalId\":\"u-42\"}}");
         }
-        subscriptions.customers().upsert(map("externalId", "u-42", "email", "ada@example.com"), "idem-cus-1");
+        // Renewals take the buyer from this record: identity and billing details are required.
+        assertThrows(ConfigurationException.class,
+                () -> subscriptions.customers().upsert(map("externalId", "u-42", "email", "ada@example.com"), "idem-cus-0"));
+        subscriptions.customers().upsert(map("externalId", "u-42", "name", "Ada", "surname", "Yilmaz",
+                "email", "ada@example.com", "gsmNumber", "+905350000000", "identityNumber", "11111111111",
+                "billingAddress", "Example Street 1", "billingCity", "Istanbul", "billingCountry", "Turkey",
+                "billingZipCode", "34000"), "idem-cus-1");
         subscriptions.customers().getByExternalId("u-42");
         subscriptions.customers().adjustCredit("cus_1", map("amountMinor", "500", "currency", "TRY", "type",
                 "GRANT"));

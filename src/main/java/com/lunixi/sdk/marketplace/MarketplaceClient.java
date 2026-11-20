@@ -10,6 +10,7 @@ import com.lunixi.sdk.http.RoutePage;
 import com.lunixi.sdk.internal.ApiClient;
 import com.lunixi.sdk.internal.Checks;
 import com.lunixi.sdk.internal.RouteRequest;
+import com.lunixi.sdk.payment.OrderDetails;
 
 /**
  * Marketplace, {@code client.marketplace()}: split charges across sub-dealers, the sub-dealer lifecycle,
@@ -56,7 +57,8 @@ public final class MarketplaceClient {
      * ({@code amount}, {@code currency}, {@code orderId}, …) plus the seller legs and the policy. Returns the answer
      * as it came ({@code token}, {@code checkoutFormContent}, {@code paymentId} …); an answer without a token or form
      * (a seller not eligible under {@code ALL_OR_NOTHING}) throws {@link LunixiApiException} instead of leaving the
-     * buyer on an empty page. The same route as {@code payments().createMarketplaceIntent()}.
+     * buyer on an empty page. The same route as {@code payments().createMarketplaceIntent()}. The order details are
+     * required ({@code buyer} without {@code ip}, {@code billingAddress}, {@code basketItems}; {@link OrderDetails}).
      *
      * @param request           the intent body, without {@code sellers} / {@code multiSellerPolicy}
      * @param sellers           the seller legs
@@ -68,6 +70,7 @@ public final class MarketplaceClient {
                                                     String multiSellerPolicy, String idempotencyKey) {
         Map<String, Object> body = MarketplaceSplit.splitBody(
                 MarketplaceSplit.body(request, "createCheckoutIntent request"), sellers, multiSellerPolicy);
+        OrderDetails.assertComplete(body, "A marketplace payment intent", true, true);
         ApiClient.Exchange exchange = routes.exchange("createCheckoutIntent", Map.of(), null, body, idempotencyKey);
         Map<String, Object> response = exchange.envelope();
         Map<String, Object> intent = RouteRequest.mergeRoot(response);
@@ -94,8 +97,8 @@ public final class MarketplaceClient {
      * Direct split card charge from a raw body ({@code amount}, {@code currency}, {@code orderId}, {@code card},
      * {@code buyer}, {@code billingAddress}, {@code basketItems}, {@code sellers}, {@code multiSellerPolicy},
      * {@code preauth?} …): {@code POST /payments/marketplace/3d} when {@code threeDS} is true, {@code /2d} otherwise.
-     * Only the amount rules are checked here; prefer {@link #chargeMarketplaceCard2d} / {@link #chargeMarketplaceCard3d},
-     * which check the body and the legs.
+     * Only the amount rules and the order details ({@link OrderDetails}) are checked here; prefer
+     * {@link #chargeMarketplaceCard2d} / {@link #chargeMarketplaceCard3d}, which check the body and the legs.
      *
      * @param payload        the raw charge body
      * @param threeDS        {@code true} for 3-D Secure
@@ -105,6 +108,7 @@ public final class MarketplaceClient {
     public Map<String, Object> chargeMarketplaceCard(Map<String, ?> payload, boolean threeDS, String idempotencyKey) {
         Map<String, Object> body = MarketplaceSplit.body(payload, "chargeMarketplaceCard payload");
         MarketplaceSplit.assertChargeAmount(body);
+        OrderDetails.assertComplete(body, "A marketplace card charge", true, false);
         return routes.send(threeDS ? "chargeMarketplaceCard3d" : "chargeMarketplaceCard2d", Map.of(), null, body,
                 idempotencyKey);
     }

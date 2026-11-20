@@ -103,8 +103,18 @@ request.put("currency", "TRY");
 request.put("orderId", order.number());
 request.put("callbackUrl", "https://merchant.example/payments/return");
 request.put("enabledInstallments", List.of(1, 2, 3)); // isteğe bağlı: en fazla 3 taksit
+// Her ödemenin istediği sipariş bilgileri (ödeme sayfanızdan alın, yer tutucu kullanmayın).
+request.put("buyer", Map.of("name", "Ada", "surname", "Yilmaz", "identityNumber", "11111111111",
+        "email", "ada@example.com", "gsmNumber", "+905350000000",
+        "city", "Istanbul", "country", "Turkey", "zipCode", "34000"));
+request.put("billingAddress", Map.of("contactName", "Ada Yilmaz", "address", "Example Street 1",
+        "city", "Istanbul", "country", "Turkey", "zipCode", "34000"));
+request.put("basketItems", List.of(Map.of("id", "SKU-1", "name", "Hediye kartı", "category1", "Dijital",
+        "itemType", "VIRTUAL", "price", "10050")));
 CheckoutSession checkout = client.payments().createIntent(request, persistedAttemptKey);
 ```
+
+Her ödeme gövdesi sipariş bilgilerini taşır (`com.lunixi.sdk.payment.OrderDetails`): `buyer` (`name`, `surname`, `identityNumber` — T.C. kimlik veya pasaport numarası, `email` — ASCII, `gsmNumber`, `city`, `country`, `zipCode`, `ip` — alıcının tarayıcı IP'si), `billingAddress` (`contactName`, `address`, `city`, `country`, `zipCode`) ve en az bir `basketItems` satırı (`id`, `name`, `category1`, `itemType`, `price`; fiyatların toplamı tutara eşittir); `PHYSICAL` bir kalem ayrıca `shippingAddress` ister. `createIntent` ve pazaryeri intent'lerinde (`createMarketplaceIntent`, `marketplace().createCheckoutIntent`) `ip` gönderilmeyebilir: Lunixi formu bu değeri alıcının tarayıcısından alır. `createIntent`, `createMarketplaceIntent`, `directMethodPayment`, `createSplitPayment`, pazaryeri kart tahsilatları ve `storeCard` (yalnız alıcı ve fatura adresi; `StoreCardRequest.withBuyer` / `withBillingAddress`) eksik alanların yollarını belirten `ConfigurationException` ile göndermeden önce durur (`OrderDetails.missing(body, withBasket, checkoutIntent)` aynı listeyi döndürür). Gateway eksik alanı 400 `payment.order.field_required`, geçersiz alanı `payment.order.field_invalid` ile yanıtlar (`OrderDetails.FIELD_REQUIRED`, `FIELD_INVALID`).
 
 ## Ödeme yöntemleri
 
@@ -117,7 +127,8 @@ Map<String, Object> methods = client.payments().listPaymentMethods(PaymentMethod
 String providerCode = chooseProvider(methods); // from data.methods[].providers[].providerCode
 Map<String, Object> response = client.payments().directMethodPayment(
         DirectMethodPaymentRequest.create("10000", "TRY", order.number())
-                .withMethodFields(PaymentMethod.MOBILE_BILLING, providerCode, Map.of("gsmNumber", "+905321234567")),
+                .withMethodFields(PaymentMethod.MOBILE_BILLING, providerCode, Map.of("gsmNumber", "+905321234567"))
+                .withBuyer(buyer).withBillingAddress(billingAddress).withBasketItems(basketItems), // sipariş bilgileri
         persistedAttemptKey);
 ```
 
@@ -157,13 +168,13 @@ Vade tablosu, toplamı `amount` değerine eşit pozitif küçük birim string tu
 
 ### Parçalı ödeme
 
-`createSplitPayment(body, idempotencyKey)` parçalı ödemeyi başlatır ve bir adımdan sonra sürdürür: aynı gövdeyi aynı anahtarla gönderin. Ödeme sürerken yanıt (durumu `code` olarak ve `data.splitPaymentId` ile taşıyan HTTP 400) hata olarak fırlatılmaz, döndürülür. Kart dışı bir parça, `providerCode` ile birlikte `mobileBilling`, `wallet` veya `promissoryNote` alanlarından tam olarak birini taşır; yemek kartı, açık bankacılık, alışveriş kredisi ve Para Transferi parça olamaz. `listSplitPayments(filters)` parçalı ödemeleri listeler (`status`, `currency`, `createdFrom`, `createdTo`, `orderId`, `ownerRef`, `limit`, `after`); `getSplit` / `refundSplit` birini okur ve iade eder. Webhook'lar: `SplitPaymentEvents`; parça olaylarını da almak için uç noktaya `SplitPaymentEvents.LEG_EVENTS_SUBSCRIPTION` ekleyin.
+`createSplitPayment(body, idempotencyKey)` parçalı ödemeyi başlatır ve bir adımdan sonra sürdürür: aynı gövdeyi aynı anahtarla gönderin. Gövde sipariş bilgilerini taşır (`buyer`, `billingAddress`, `basketItems`; `PHYSICAL` kalemde `shippingAddress`; `SplitPaymentValues.SPLIT_PAYMENT_FIELDS`). Ödeme sürerken yanıt (durumu `code` olarak ve `data.splitPaymentId` ile taşıyan HTTP 400) hata olarak fırlatılmaz, döndürülür. Kart dışı bir parça, `providerCode` ile birlikte `mobileBilling`, `wallet` veya `promissoryNote` alanlarından tam olarak birini taşır; yemek kartı, açık bankacılık, alışveriş kredisi ve Para Transferi parça olamaz. `listSplitPayments(filters)` parçalı ödemeleri listeler (`status`, `currency`, `createdFrom`, `createdTo`, `orderId`, `ownerRef`, `limit`, `after`); `getSplit` / `refundSplit` birini okur ve iade eder. Webhook'lar: `SplitPaymentEvents`; parça olaylarını da almak için uç noktaya `SplitPaymentEvents.LEG_EVENTS_SUBSCRIPTION` ekleyin.
 
 ### Kartlar, taksitler ve pazaryeri intent'leri
 
 `binInfo(binOrPan)` 6 veya 8 haneli bir BIN için kart, banka ve taksit uygunluğunu döndürür (`POST /api/v1/bin/info`); `cardTaxonomy()` marka, aile ve banka listelerini döndürür. `installmentOptions(InstallmentOptionsRequest.create(amount, currency))` taksit tablosunu döndürür; `withBinOrPan(...)` ve `withInstallment(n)` (n > 1) ile yanıt, `DirectMethodPaymentRequest.withInstallment(n, quoteToken)` için `quoteToken` değerini taşır. `withEnabledInstallments(List.of(1, 2, 3))`, `createIntent` çağrısının `enabledInstallments` kuralını izler (1'i içeren, tekrarsız 1–36 arası tamsayılar); liste göndermeden önce denetlenir ve artan sırada gönderilir (`EnabledInstallments.require`).
 
-Saklı kartlar: `storeCard(StoreCardRequest.create(card, cardUserKey, callbackUrl), idempotencyKey)` ve `deactivateStoredCard(storedCardToken, idempotencyKey)` imzalıdır ve önceden kalıcılaştırılmış 16–128 ASCII karakterli anahtar ister; `listStoredCards(cardUserKey)` ve `getStoredCard(storedCardToken)` kayıtları okur. Kart alanları verdiğiniz gibi gönderilir; SDK hata mesajında veya `toString()` çıktısında hiçbir zaman görünmez.
+Saklı kartlar: `storeCard(StoreCardRequest.create(card, cardUserKey, callbackUrl).withBuyer(buyer).withBillingAddress(billingAddress), idempotencyKey)` (alıcı ve fatura adresi zorunlu, sepet yok) ve `deactivateStoredCard(storedCardToken, idempotencyKey)` imzalıdır ve önceden kalıcılaştırılmış 16–128 ASCII karakterli anahtar ister; `listStoredCards(cardUserKey)` ve `getStoredCard(storedCardToken)` kayıtları okur. Kart alanları verdiğiniz gibi gönderilir; SDK hata mesajında veya `toString()` çıktısında hiçbir zaman görünmez.
 
 `createMarketplaceIntent(body[, idempotencyKey])` (`POST /api/v1/payments/marketplace/intents`, imzalı) intent gövdesine ek olarak `sellers[]` (`{subDealerId, amountMinor, scenario?}`) ve `multiSellerPolicy` alır. Satıcıların `amountMinor` değerlerinin toplamı `amount` değerine eşit olmalıdır; farklı bir toplam göndermeden önce reddedilir.
 
@@ -241,7 +252,7 @@ Her çağrı göndermeden önce `SubscriptionRoutes` ile denetlenir: bilinmeyen 
 
 ## Pazaryeri
 
-`client.marketplace()` bir ödemeyi alt bayiler arasında böler ve alt bayileri yönetir. Bölünmüş tahsilatlar (`createCheckoutIntent`, `chargeMarketplaceCard2d`, `chargeMarketplaceCard3d` ve ham `chargeMarketplaceCard`) imzalı olarak ve isteğe bağlı `Idempotency-Key` ile `/api/v1/payments/marketplace/*` rotalarına gider. Her alt bayi için bir parça, `{subDealerId, amountMinor, scenario?}`, ve `multiSellerPolicy` (varsayılan `ALL_OR_NOTHING`) verin; parçaların toplamı `amount` değerine eşit olmalıdır. Kart tahsilatı `amount`, `currency`, `orderId`, `card`, `buyer`, `billingAddress` ve en az bir sepet kalemi ister. Kart verisi verildiği gibi gönderilir ve hiçbir hata mesajına konmaz. Token veya form içermeyen checkout yanıtı `LunixiApiException` fırlatır.
+`client.marketplace()` bir ödemeyi alt bayiler arasında böler ve alt bayileri yönetir. Bölünmüş tahsilatlar (`createCheckoutIntent`, `chargeMarketplaceCard2d`, `chargeMarketplaceCard3d` ve ham `chargeMarketplaceCard`) imzalı olarak ve isteğe bağlı `Idempotency-Key` ile `/api/v1/payments/marketplace/*` rotalarına gider. Her alt bayi için bir parça, `{subDealerId, amountMinor, scenario?}`, ve `multiSellerPolicy` (varsayılan `ALL_OR_NOTHING`) verin; parçaların toplamı `amount` değerine eşit olmalıdır. Kart tahsilatı `amount`, `currency`, `orderId`, `card` ve sipariş bilgilerini (`buyer`, `billingAddress`, en az bir sepet kalemi; `PHYSICAL` kalemde `shippingAddress`) ister; checkout intent de sipariş bilgilerini ister, orada `buyer.ip` gönderilmeyebilir. Kart verisi verildiği gibi gönderilir ve hiçbir hata mesajına konmaz. Token veya form içermeyen checkout yanıtı `LunixiApiException` fırlatır.
 
 ```java
 client.marketplace().createCheckoutIntent(Map.of("amount", "100000", "currency", "TRY", "orderId", orderId),

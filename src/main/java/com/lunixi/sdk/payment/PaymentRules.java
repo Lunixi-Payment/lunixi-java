@@ -280,6 +280,7 @@ final class PaymentRules {
                         + "'. Use DirectMethodPaymentRequest to build the request.");
             }
         }
+        OrderDetails.assertComplete(payload, "A direct method payment", true, false);
         positiveMinor(payload.get("amount"), "amount");
         currency(payload.get("currency"));
         boundedText(payload.get("orderId"), "orderId", ORDER_ID_MAX_LENGTH);

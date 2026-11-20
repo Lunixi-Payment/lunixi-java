@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0 — 2026-11-20
+
+- **Breaking — order details required (checkout service).** `OrderSnapshot` carries the buyer, billing address, shipping address and basket items (`withOrderDetails(...)`, `orderDetails()`); they are not part of the fingerprint, `toMap()`, equality or `toString()`, and their fields are sent in sorted order so a retried create stays byte-identical across JVMs. `CommerceService.start()` sends them with the intent, keeps them out of the attempt descriptor and refuses an incomplete order with `ConfigurationException` before reserving an attempt (`buyer.ip` may be left out on a checkout intent). New `payment.OrderDetails` (`ORDER_DETAILS_REQUIRED_FIELDS`, `BUYER_REQUIRED_FIELDS`, `CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS`, `ADDRESS_REQUIRED_FIELDS`, `BASKET_ITEM_REQUIRED_FIELDS`, `FIELD_REQUIRED`, `FIELD_INVALID`, `missing()`, `assertComplete()`).
+- **Breaking — order details checked on the payment endpoints.** `createIntent` and `createMarketplaceIntent` (and `marketplace().createCheckoutIntent`; `buyer.ip` may be left out there), `directMethodPayment`, `createSplitPayment`, the marketplace card charges (`chargeMarketplaceCard`, `chargeMarketplaceCard2d` / `3d`) and `storeCard` (buyer and billing address only, no basket) throw `ConfigurationException` naming the missing paths (`buyer.email`, `billingAddress.city`, `basketItems`, `shippingAddress` …) before sending. `SplitPaymentValues.SPLIT_PAYMENT_FIELDS` includes `buyer`, `billingAddress`, `shippingAddress` and `basketItems`; `StoreCardRequest` gained `withBuyer` and `withBillingAddress`.
+- **Breaking:** payment link `buyerFields` take only `REQUIRED`; `PaymentLinkValues.BuyerFieldRequirement.HIDDEN` and `OPTIONAL` are removed (the gateway answers them with 400).
+- Wallet card top-up route: `buyer` and `billingAddress` required, `shippingAddress` optional. Subscription `customers.upsert`: `name`, `surname`, `email`, `gsmNumber`, `identityNumber`, `billingAddress`, `billingCity`, `billingCountry`, `billingZipCode` required; `phone`, `locale`, `metadata` removed (never accepted by the gateway).
+
 ## 1.5.1 — 2026-11-15
 
 - Static-analysis (SpotBugs) configuration for the 1.5.0 clients; no behaviour change.

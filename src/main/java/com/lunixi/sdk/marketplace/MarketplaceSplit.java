@@ -2,7 +2,6 @@ package com.lunixi.sdk.marketplace;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,10 +9,12 @@ import java.util.Map;
 import com.lunixi.sdk.exception.ConfigurationException;
 import com.lunixi.sdk.internal.Checks;
 import com.lunixi.sdk.payment.Money;
+import com.lunixi.sdk.payment.OrderDetails;
 
 /**
  * Checks of the split charge bodies, made before sending: no removed amount field, a positive minor-unit
- * {@code amount}, a boolean {@code preauth}, canonical money members, and seller legs adding up to {@code amount}.
+ * {@code amount}, a boolean {@code preauth}, canonical money members, the order details ({@link OrderDetails}) of a
+ * card charge, and seller legs adding up to {@code amount}.
  * Error messages name the field, never its value: card data never appears in one. SDK internals.
  */
 final class MarketplaceSplit {
@@ -37,9 +38,7 @@ final class MarketplaceSplit {
         if (!missing.isEmpty()) {
             throw new ConfigurationException("A marketplace card charge requires " + String.join(", ", missing) + ".");
         }
-        if (!(body.get("basketItems") instanceof Collection<?> items) || items.isEmpty()) {
-            throw new ConfigurationException("A marketplace card charge requires at least one basket item.");
-        }
+        OrderDetails.assertComplete(body, "A marketplace card charge", true, false);
         return splitBody(body, sellers, multiSellerPolicy);
     }
 

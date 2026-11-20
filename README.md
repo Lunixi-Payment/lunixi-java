@@ -77,8 +77,18 @@ request.put("currency", "TRY");
 request.put("orderId", order.number());
 request.put("callbackUrl", "https://merchant.example/payments/return");
 request.put("enabledInstallments", List.of(1, 2, 3)); // optional: at most 3 installments
+// Order details every payment requires (take them from your checkout, never a placeholder).
+request.put("buyer", Map.of("name", "Ada", "surname", "Yilmaz", "identityNumber", "11111111111",
+        "email", "ada@example.com", "gsmNumber", "+905350000000",
+        "city", "Istanbul", "country", "Turkey", "zipCode", "34000"));
+request.put("billingAddress", Map.of("contactName", "Ada Yilmaz", "address", "Example Street 1",
+        "city", "Istanbul", "country", "Turkey", "zipCode", "34000"));
+request.put("basketItems", List.of(Map.of("id", "SKU-1", "name", "Gift card", "category1", "Digital",
+        "itemType", "VIRTUAL", "price", "10050")));
 CheckoutSession checkout = client.payments().createIntent(request, persistedAttemptKey);
 ```
+
+Every payment body carries the order details (`com.lunixi.sdk.payment.OrderDetails`): `buyer` (`name`, `surname`, `identityNumber` — Turkish ID or passport number, `email` — ASCII, `gsmNumber`, `city`, `country`, `zipCode`, `ip` — the buyer's browser IP), `billingAddress` (`contactName`, `address`, `city`, `country`, `zipCode`) and at least one `basketItems` entry (`id`, `name`, `category1`, `itemType`, `price`; the prices add up to the amount); a `PHYSICAL` item also needs `shippingAddress`. On `createIntent` and the marketplace intents (`createMarketplaceIntent`, `marketplace().createCheckoutIntent`) `ip` may be left out: the Lunixi form takes it from the buyer's browser. `createIntent`, `createMarketplaceIntent`, `directMethodPayment`, `createSplitPayment`, the marketplace card charges and `storeCard` (buyer and billing address only, `StoreCardRequest.withBuyer` / `withBillingAddress`) throw `ConfigurationException` naming the missing paths before sending (`OrderDetails.missing(body, withBasket, checkoutIntent)` returns the same list). The gateway answers a missing field with 400 `payment.order.field_required` and an invalid one with `payment.order.field_invalid` (`OrderDetails.FIELD_REQUIRED`, `FIELD_INVALID`).
 
 ## Payment methods
 
@@ -91,7 +101,8 @@ Map<String, Object> methods = client.payments().listPaymentMethods(PaymentMethod
 String providerCode = chooseProvider(methods); // from data.methods[].providers[].providerCode
 Map<String, Object> response = client.payments().directMethodPayment(
         DirectMethodPaymentRequest.create("10000", "TRY", order.number())
-                .withMethodFields(PaymentMethod.MOBILE_BILLING, providerCode, Map.of("gsmNumber", "+905321234567")),
+                .withMethodFields(PaymentMethod.MOBILE_BILLING, providerCode, Map.of("gsmNumber", "+905321234567"))
+                .withBuyer(buyer).withBillingAddress(billingAddress).withBasketItems(basketItems), // order details
         persistedAttemptKey);
 ```
 
@@ -131,13 +142,13 @@ A custom `HttpTransport` downloads documents only when it implements `sendBinary
 
 ### Split payments
 
-`createSplitPayment(body, idempotencyKey)` starts a split payment and continues it after a step: send the same body with the same key. While it is running the answer (HTTP 400 with the status as `code` and `data.splitPaymentId`) is returned, not thrown. A non-card leg carries exactly one of `mobileBilling`, `wallet` or `promissoryNote` with its `providerCode`; meal card, open banking, shopping loan and bank transfer cannot be legs. `listSplitPayments(filters)` lists them (`status`, `currency`, `createdFrom`, `createdTo`, `orderId`, `ownerRef`, `limit`, `after`); `getSplit` / `refundSplit` read and refund one. Webhooks: `SplitPaymentEvents`; add `SplitPaymentEvents.LEG_EVENTS_SUBSCRIPTION` to an endpoint to also receive leg events.
+`createSplitPayment(body, idempotencyKey)` starts a split payment and continues it after a step: send the same body with the same key. The body carries the order details (`buyer`, `billingAddress`, `basketItems`; `shippingAddress` for a `PHYSICAL` item; `SplitPaymentValues.SPLIT_PAYMENT_FIELDS`). While it is running the answer (HTTP 400 with the status as `code` and `data.splitPaymentId`) is returned, not thrown. A non-card leg carries exactly one of `mobileBilling`, `wallet` or `promissoryNote` with its `providerCode`; meal card, open banking, shopping loan and bank transfer cannot be legs. `listSplitPayments(filters)` lists them (`status`, `currency`, `createdFrom`, `createdTo`, `orderId`, `ownerRef`, `limit`, `after`); `getSplit` / `refundSplit` read and refund one. Webhooks: `SplitPaymentEvents`; add `SplitPaymentEvents.LEG_EVENTS_SUBSCRIPTION` to an endpoint to also receive leg events.
 
 ### Cards, installments and marketplace intents
 
 `binInfo(binOrPan)` returns the card, bank and installment eligibility of a 6- or 8-digit BIN (`POST /api/v1/bin/info`), `cardTaxonomy()` the brand, family and bank lists. `installmentOptions(InstallmentOptionsRequest.create(amount, currency))` returns the installment table; with `withBinOrPan(...)` and `withInstallment(n)` (n > 1) the answer carries the `quoteToken` for `DirectMethodPaymentRequest.withInstallment(n, quoteToken)`. `withEnabledInstallments(List.of(1, 2, 3))` follows the `enabledInstallments` rule of `createIntent` (distinct integers 1–36 that include 1); the list is checked before sending and sent in ascending order (`EnabledInstallments.require`).
 
-Stored cards: `storeCard(StoreCardRequest.create(card, cardUserKey, callbackUrl), idempotencyKey)` and `deactivateStoredCard(storedCardToken, idempotencyKey)` are signed and need a persisted 16–128 ASCII-character key; `listStoredCards(cardUserKey)` and `getStoredCard(storedCardToken)` read them. The card fields are sent as you pass them and never appear in an SDK error message or `toString()`.
+Stored cards: `storeCard(StoreCardRequest.create(card, cardUserKey, callbackUrl).withBuyer(buyer).withBillingAddress(billingAddress), idempotencyKey)` (the buyer and billing address are required, no basket) and `deactivateStoredCard(storedCardToken, idempotencyKey)` are signed and need a persisted 16–128 ASCII-character key; `listStoredCards(cardUserKey)` and `getStoredCard(storedCardToken)` read them. The card fields are sent as you pass them and never appear in an SDK error message or `toString()`.
 
 `createMarketplaceIntent(body[, idempotencyKey])` (`POST /api/v1/payments/marketplace/intents`, signed) takes the intent body plus `sellers[]` (`{subDealerId, amountMinor, scenario?}`) and `multiSellerPolicy`. The sellers' `amountMinor` strings must add up to `amount`; a different total is refused before sending.
 
@@ -215,7 +226,7 @@ Every call is checked against `SubscriptionRoutes` before sending: unknown or mi
 
 ## Marketplace
 
-`client.marketplace()` splits a payment across sub-dealers and manages them. The split charges (`createCheckoutIntent`, `chargeMarketplaceCard2d`, `chargeMarketplaceCard3d`, and the raw `chargeMarketplaceCard`) go to `/api/v1/payments/marketplace/*`, signed, with an optional `Idempotency-Key`. Pass one leg per sub-dealer, `{subDealerId, amountMinor, scenario?}`, and the `multiSellerPolicy` (`ALL_OR_NOTHING` by default); the legs must add up to `amount`, and a card charge needs `amount`, `currency`, `orderId`, `card`, `buyer`, `billingAddress` and at least one basket item. Card data is sent as given and never put in an error message. A checkout answer without a token or form throws `LunixiApiException`.
+`client.marketplace()` splits a payment across sub-dealers and manages them. The split charges (`createCheckoutIntent`, `chargeMarketplaceCard2d`, `chargeMarketplaceCard3d`, and the raw `chargeMarketplaceCard`) go to `/api/v1/payments/marketplace/*`, signed, with an optional `Idempotency-Key`. Pass one leg per sub-dealer, `{subDealerId, amountMinor, scenario?}`, and the `multiSellerPolicy` (`ALL_OR_NOTHING` by default); the legs must add up to `amount`, and a card charge needs `amount`, `currency`, `orderId`, `card` and the order details (`buyer`, `billingAddress`, at least one basket item; `shippingAddress` for a `PHYSICAL` item); a checkout intent needs the order details too, `buyer.ip` may be left out there. Card data is sent as given and never put in an error message. A checkout answer without a token or form throws `LunixiApiException`.
 
 ```java
 client.marketplace().createCheckoutIntent(Map.of("amount", "100000", "currency", "TRY", "orderId", orderId),

@@ -132,10 +132,12 @@ public final class WalletRoutes {
         routes.put("getOperation", get("/operations/:operationId"));
         routes.put("getOperationReceipt", get("/operations/:operationId/receipt"));
 
+        // The payment provider requires the buyer and billing address (buyer.ip: the user's browser IP);
+        // a missing field is 400 payment.order.field_required with the paths in details.fields.
         routes.put("startCardTopup", post("/topups/card").keyed()
-                .withRequired("creditWalletAccountId", "amount", "currency")
+                .withRequired("creditWalletAccountId", "amount", "currency", "buyer", "billingAddress")
                 .withOptional("fundingMerchantId", "savedCardUserKey", "savedCardToken", "savedConsumerToken",
-                        "savedPublicCardStorageToken", "returnUrl"));
+                        "savedPublicCardStorageToken", "returnUrl", "shippingAddress"));
         routes.put("getTopup", get("/topups/:operationId"));
         // The gateway DTO marks approverPrincipal optional, but the wallet service refuses the refund without it.
         routes.put("refundTopup", post("/topups/:operationId/refund")

@@ -48,8 +48,14 @@ public final class PaymentsClient {
      * Leave it out for no restriction. Send distinct integers 1–36 that include 1, in ascending order; the gateway
      * rejects any other list, an empty one included, with 400.
      *
-     * @param request gateway body: {@code amount} (canonical minor-unit string), {@code currency}, {@code orderId}
-     *     and optional fields such as {@code callbackUrl} and {@code enabledInstallments}
+     * <p>The order details are required ({@link OrderDetails}): {@code buyer} ({@code ip} may be left out here: the
+     * Lunixi form takes it from the buyer's browser), {@code billingAddress} and {@code basketItems} (at least one,
+     * the {@code price} values adding up to {@code amount}); {@code shippingAddress} when an item is
+     * {@code PHYSICAL}. A body without them throws {@link ConfigurationException} naming the missing paths; nothing
+     * is sent then.
+     *
+     * @param request gateway body: {@code amount} (canonical minor-unit string), {@code currency}, {@code orderId},
+     *     the order details and optional fields such as {@code callbackUrl} and {@code enabledInstallments}
      * @param idempotencyKey the persisted key of this checkout attempt
      * @return the checkout session with the payment id, token and optional payment page URL
      */
@@ -57,6 +63,7 @@ public final class PaymentsClient {
         if (request != null && (request.containsKey("price") || request.containsKey("paidPrice"))) { throw new IllegalArgumentException("Removed top-level amount field; use integer minor-unit amount."); }
         if (request == null || Money.integer(request.get("amount")) < 1 || !(request.get("orderId") instanceof String order) || order.isBlank() || !(request.get("currency") instanceof String currency)) { throw new IllegalArgumentException("Server order, positive amount and currency are required."); }
         Money.exponent(currency);
+        OrderDetails.assertComplete(request, "A payment intent", true, true);
         if (request.containsKey("callbackUrl")) { httpsUrl(String.valueOf(request.get("callbackUrl"))); }
         Map<String, Object> result = Envelope.data(api.request("POST", BASE + "/intents", request, mutation(idempotencyKey)));
         String id = text(result.get("paymentId"));
@@ -137,7 +144,9 @@ public final class PaymentsClient {
      * with the same rules: no {@code price} / {@code paidPrice}, known fields only, {@code paymentMethod},
      * {@code amount}, {@code currency}, {@code orderId} required, card fields only with {@code CARD}, exactly the
      * chosen method's block (structure, {@code providerCode}; none for {@code BANK_TRANSFER}), the promissory-note
-     * plan, the shopping-loan basket (1–100 items) and boolean {@code preauth} / {@code force3D}.
+     * plan, the shopping-loan basket (1–100 items), boolean {@code preauth} / {@code force3D} and the order details
+     * ({@code buyer}, {@code billingAddress}, {@code basketItems}; {@code shippingAddress} for a {@code PHYSICAL}
+     * item; {@link OrderDetails}).
      *
      * @param body           the gateway body
      * @param idempotencyKey the persisted key of this payment (16–128 ASCII characters)
@@ -271,7 +280,9 @@ public final class PaymentsClient {
      *
      * <p>The body is checked before sending: known fields, 1–5 legs adding up to {@code totalAmount}, card legs
      * with {@code cardToken}, non-card legs with exactly one of {@link SplitPaymentValues#SPLIT_LEG_BLOCK_FIELDS}
-     * (with {@code providerCode}); meal card, open banking, shopping loan and bank transfer cannot be legs.
+     * (with {@code providerCode}); meal card, open banking, shopping loan and bank transfer cannot be legs. The
+     * order details are required ({@code buyer}, {@code billingAddress}, {@code basketItems}; {@code shippingAddress}
+     * for a {@code PHYSICAL} item; {@link OrderDetails}): every leg goes to the payment provider with them.
      *
      * @param body           the gateway body
      * @param idempotencyKey the persisted key of this split payment (16–128 ASCII characters)
@@ -463,7 +474,8 @@ public final class PaymentsClient {
 
     /**
      * Stores a card ({@code POST /api/v1/payments/cards}, signed). The {@code Idempotency-Key} is required; reuse
-     * it when retrying the same card.
+     * it when retrying the same card. The buyer and the billing address are required (no basket;
+     * {@link OrderDetails}); later stored-card charges take the buyer from this first payment.
      *
      * @param request        the body
      * @param idempotencyKey the persisted key of this operation (16–128 ASCII characters)
@@ -475,7 +487,8 @@ public final class PaymentsClient {
     }
 
     /**
-     * Same as {@link #storeCard(StoreCardRequest, String)} for a body map with a non-empty {@code card} map.
+     * Same as {@link #storeCard(StoreCardRequest, String)} for a body map with a non-empty {@code card} map, the
+     * {@code buyer} and the {@code billingAddress}.
      *
      * @param body           the gateway body
      * @param idempotencyKey the persisted key of this operation (16–128 ASCII characters)
@@ -484,6 +497,7 @@ public final class PaymentsClient {
     public Map<String, Object> storeCard(Map<String, ?> body, String idempotencyKey) {
         if (body == null) { throw new ConfigurationException("storeCard needs a body with the card fields."); }
         CardRules.card(body.get("card"));
+        OrderDetails.assertComplete(body, "Storing a card", false, false);
         String key = PaymentRules.operationKey("store card", idempotencyKey);
         return api.request("POST", BASE + "/cards", new LinkedHashMap<>(body),
                 RequestOptions.builder().stepUp(true).idempotencyKey(key).build());
@@ -538,8 +552,8 @@ public final class PaymentsClient {
      * Creates a marketplace checkout intent ({@code POST /api/v1/payments/marketplace/intents}, signed): the intent
      * body plus {@code sellers[]} ({@code { subDealerId, amountMinor, scenario? }}, {@code amountMinor} a canonical
      * minor-unit string) and {@code multiSellerPolicy}. Checked before sending: no {@code price} /
-     * {@code paidPrice}, positive {@code amount}, {@code currency}, {@code orderId}, and the sellers'
-     * {@code amountMinor} values adding up to {@code amount}.
+     * {@code paidPrice}, positive {@code amount}, {@code currency}, {@code orderId}, the sellers'
+     * {@code amountMinor} values adding up to {@code amount}, and the order details as on {@link #createIntent}.
      *
      * @param body           the gateway body
      * @param idempotencyKey the persisted key of this attempt (16–128 ASCII characters), or {@code null}
@@ -547,6 +561,7 @@ public final class PaymentsClient {
      */
     public Map<String, Object> createMarketplaceIntent(Map<String, ?> body, String idempotencyKey) {
         MarketplaceIntentRules.assertPayload(body);
+        OrderDetails.assertComplete(body, "A marketplace payment intent", true, true);
         RequestOptions.Builder options = RequestOptions.builder().stepUp(true);
         if (idempotencyKey != null) { options.idempotencyKey(PaymentRules.operationKey("marketplace intent", idempotencyKey)); }
         return api.request("POST", BASE + "/marketplace/intents", new LinkedHashMap<>(body), options.build());

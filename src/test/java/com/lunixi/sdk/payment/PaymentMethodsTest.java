@@ -21,6 +21,7 @@ import com.lunixi.sdk.exception.ServiceUnavailableException;
 import com.lunixi.sdk.exception.ValidationException;
 import com.lunixi.sdk.http.HttpTransport;
 import com.lunixi.sdk.json.Json;
+import com.lunixi.sdk.support.OrderFixture;
 import com.lunixi.sdk.support.RecordingTransport;
 
 /** Payment methods, direct payments, actions, promissory notes, bank transfer, split payments and reference data. */
@@ -50,11 +51,18 @@ class PaymentMethodsTest {
         body.put("amount", "10000");
         body.put("currency", "TRY");
         body.put("orderId", "order-1");
+        body.putAll(OrderFixture.withOrderDetails(Map.of(), "10000"));
         for (int i = 0; i < extra.length; i += 2) { body.put((String) extra[i], extra[i + 1]); }
         return body;
     }
 
-    static DirectMethodPaymentRequest request() { return DirectMethodPaymentRequest.create("10000", "TRY", "order-1"); }
+    /** Without the order details: for the builder rules that do not send. */
+    static DirectMethodPaymentRequest bare() { return DirectMethodPaymentRequest.create("10000", "TRY", "order-1"); }
+
+    static DirectMethodPaymentRequest request() {
+        return bare().withBuyer(OrderFixture.BUYER).withBillingAddress(OrderFixture.ADDRESS)
+                .withBasketItems(OrderFixture.basket("10000"));
+    }
 
     static List<Map<String, Object>> schedule(String... amountDuePairs) {
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -163,7 +171,7 @@ class PaymentMethodsTest {
         assertSigned(call);
         assertEquals(CanonicalRequest.digestForBody(call.body), call.headers.get(CanonicalRequest.HEADER_DIGEST));
         assertEquals("{\"paymentMethod\":\"BANK_TRANSFER\",\"amount\":\"10000\",\"currency\":\"TRY\",\"orderId\":\"order-1\","
-                + "\"bankTransfer\":{\"bankCode\":\"0062\"}}", call.body);
+                + OrderFixture.json("10000") + ",\"bankTransfer\":{\"bankCode\":\"0062\"}}", call.body);
 
         PaymentBankTransferInstruction instruction = PaymentBankTransferInstruction.fromResponse(response).orElseThrow();
         assertEquals("0062", instruction.bankCode());
@@ -217,6 +225,21 @@ class PaymentMethodsTest {
         assertNothingSent();
     }
 
+    @Test void aDirectPaymentWithoutTheOrderDetailsIsNotSent() {
+        ConfigurationException refused = assertThrows(ConfigurationException.class, () -> client.payments()
+                .directMethodPayment(bare().withMethodFields(PaymentMethod.BANK_TRANSFER, null, Map.of("bankCode", "0062")), KEY));
+        assertEquals("A direct method payment requires the order details: buyer, billingAddress, basketItems.",
+                refused.getMessage());
+        Map<String, Object> noIp = new LinkedHashMap<>(OrderFixture.BUYER);
+        noIp.remove("ip");
+        Map<String, Object> physical = raw("BANK_TRANSFER", "bankTransfer", Map.of("bankCode", "0062"), "buyer", noIp,
+                "basketItems", List.of(Map.of("id", "SKU-1", "name", "Lamp", "category1", "Home", "itemType", "PHYSICAL",
+                        "price", "10000")));
+        refused = assertThrows(ConfigurationException.class, () -> client.payments().directMethodPayment(physical, KEY));
+        assertEquals("A direct method payment requires the order details: buyer.ip, shippingAddress.", refused.getMessage());
+        assertNothingSent();
+    }
+
     @Test void builderRulesAndTheIdempotencyKeyAreCheckedBeforeSending() {
         var payments = client.payments();
         assertThrows(ConfigurationException.class, () -> request().withMethodFields(PaymentMethod.CARD, null));
@@ -244,8 +267,9 @@ class PaymentMethodsTest {
     }
 
     @Test void shoppingLoanNeedsOneToOneHundredBasketItems() {
-        Map<String, Object> item = Map.of("name", "Phone", "price", "100", "productCategory", ProductCategory.MOBILE_PHONE);
-        DirectMethodPaymentRequest loan = request().withMethodFields(PaymentMethod.SHOPPING_LOAN, null, Map.of("bankCode", "0062"));
+        Map<String, Object> item = Map.of("id", "SKU-1", "name", "Phone", "category1", "Phones", "itemType", "VIRTUAL",
+                "price", "100", "productCategory", ProductCategory.MOBILE_PHONE);
+        DirectMethodPaymentRequest loan = bare().withMethodFields(PaymentMethod.SHOPPING_LOAN, null, Map.of("bankCode", "0062"));
         assertThrows(ConfigurationException.class, loan::toBody, "no basket");
         assertThrows(ConfigurationException.class, () -> loan.withBasketItems(List.of()).toBody(), "0 items");
         List<Map<String, Object>> tooMany = new ArrayList<>();
@@ -306,7 +330,7 @@ class PaymentMethodsTest {
         RecordingTransport.Call call = transport.onlyApiCall();
         assertSigned(call);
         assertEquals("{\"paymentMethod\":\"PROMISSORY_NOTE\",\"amount\":\"10000\",\"currency\":\"TRY\",\"orderId\":\"order-1\","
-                + "\"promissoryNote\":{\"providerCode\":\"NOTE_PROVIDER\",\"debtorType\":\"INDIVIDUAL\",\"schedule\":["
+                + OrderFixture.json("10000") + ",\"promissoryNote\":{\"providerCode\":\"NOTE_PROVIDER\",\"debtorType\":\"INDIVIDUAL\",\"schedule\":["
                 + "{\"amount\":\"5000\",\"dueDate\":\"2027-01-15\"},{\"amount\":\"5000\",\"dueDate\":\"2027-01-15\"}]}}", call.body);
     }
 
@@ -497,7 +521,24 @@ class PaymentMethodsTest {
         body.put("currency", "TRY");
         body.put("ownerRef", "customer-1");
         body.put("legs", List.of(card, methodLeg));
-        return body;
+        return OrderFixture.withOrderDetails(body, "10000");
+    }
+
+    @Test void aSplitPaymentCarriesTheOrderDetailsAndIsNotSentWithoutThem() {
+        Map<String, Object> body = split(Map.of("paymentMethod", "MOBILE_BILLING", "amount", "4000",
+                "mobileBilling", Map.of("providerCode", "PROVIDER_A", "gsmNumber", "+905321234567")));
+        body.put("shippingAddress", OrderFixture.ADDRESS);
+        assertTrue(SplitPaymentValues.SPLIT_PAYMENT_FIELDS.containsAll(List.of("buyer", "billingAddress",
+                "shippingAddress", "basketItems")));
+        transport.enqueue(200, "{\"status\":\"success\",\"data\":{\"splitPaymentId\":\"sp_1\",\"status\":\"COMPLETED\"}}");
+        client.payments().createSplitPayment(body, KEY);
+        assertTrue(transport.onlyApiCall().body.contains("\"shippingAddress\":"));
+        body.remove("buyer");
+        body.remove("billingAddress");
+        ConfigurationException refused = assertThrows(ConfigurationException.class,
+                () -> client.payments().createSplitPayment(body, KEY));
+        assertEquals("A split payment requires the order details: buyer, billingAddress.", refused.getMessage());
+        assertEquals(1, transport.apiCalls().size());
     }
 
     @Test void bankTransferOpenBankingAndOtherNonLegMethodsCannotBeSplitLegs() {
