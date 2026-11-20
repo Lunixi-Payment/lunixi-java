@@ -38,4 +38,7 @@
   <!-- RequestOptions constructor defensively copies and wraps the LinkedHashMap;
        insertion order is retained for signed queries. Proven by public mutation test. -->
   <Match><Class name="com.lunixi.sdk.internal.RequestOptions"/><Method name="query"/><Bug pattern="EI_EXPOSE_REP"/></Match>
+  <!-- OrderSnapshot keeps the order details as unmodifiable sorted copies (copy(): Collections.unmodifiableMap
+       over a TreeMap; basketItems: Stream.toList over those copies). SpotBugs cannot infer the helper contract. -->
+  <Match><Class name="com.lunixi.sdk.payment.OrderSnapshot"/><Or><Method name="buyer"/><Method name="billingAddress"/><Method name="shippingAddress"/><Method name="basketItems"/></Or><Bug pattern="EI_EXPOSE_REP"/></Match>
 </FindBugsFilter>

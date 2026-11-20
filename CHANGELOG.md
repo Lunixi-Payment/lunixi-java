@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1 — 2026-11-20
+
+- The 2.0.0 release did not reach Maven Central; this version carries the same changes. `OrderSnapshot` getters return unmodifiable copies (SpotBugs filter documents them).
+
 ## 2.0.0 — 2026-11-20
 
 - **Breaking — order details required (checkout service).** `OrderSnapshot` carries the buyer, billing address, shipping address and basket items (`withOrderDetails(...)`, `orderDetails()`); they are not part of the fingerprint, `toMap()`, equality or `toString()`, and their fields are sent in sorted order so a retried create stays byte-identical across JVMs. `CommerceService.start()` sends them with the intent, keeps them out of the attempt descriptor and refuses an incomplete order with `ConfigurationException` before reserving an attempt (`buyer.ip` may be left out on a checkout intent). New `payment.OrderDetails` (`ORDER_DETAILS_REQUIRED_FIELDS`, `BUYER_REQUIRED_FIELDS`, `CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS`, `ADDRESS_REQUIRED_FIELDS`, `BASKET_ITEM_REQUIRED_FIELDS`, `FIELD_REQUIRED`, `FIELD_INVALID`, `missing()`, `assertComplete()`).
